@@ -204,7 +204,7 @@ class App(TkinterDnD.Tk):
         )
         shutil.copy2(tmp_out, dst_img)
 
-        messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n水印长度：{wm_len} 尺寸：{width}x{height}")
+        messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n【请完善保存以下内容！】\n水印长度：{wm_len} 尺寸：{width}x{height}")
 
         for f in [tmp_in, tmp_out]:
             if os.path.exists(f):
