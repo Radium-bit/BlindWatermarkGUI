@@ -19,8 +19,19 @@
 需使用 Python 3.7 及以上版本。
 
 ```bash
-pip install blind-watermark pillow tkinterdnd2
+pip install blind-watermark pillow tkinterdnd2-universal
 ````
+
+---
+
+## 🛠️ 打包 Windows 可执行文件（.exe）
+
+推荐使用 [PyInstaller](https://www.pyinstaller.org/) 创建单文件 `.exe`
+
+### 1. 确保安装依赖后在目录执行以下命令
+```bash
+pyinstaller --additional-hooks-dir=hooks --onefile --windowed main.py
+```
 
 ---
 
