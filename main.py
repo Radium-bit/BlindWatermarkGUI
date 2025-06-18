@@ -8,13 +8,21 @@ from tkinter import messagebox
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import tempfile
 import re
+import json
+from pathlib import Path
 from PIL import Image
 from blind_watermark import WaterMark
+
+# 程序版本号
+VERSION = r"0.1.1"
 
 class App(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Blind‑Watermark GUI 工具")
+        self.config_path = os.path.join(os.environ["USERPROFILE"], "radiumbit.blindwatermark.config.json")
+        self._saved_before_close = False
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.title(f"BlindWatermarkGUI v{VERSION}")
         self.geometry("580x560")
         self.configure(bg="white")
 
@@ -31,7 +39,7 @@ class App(TkinterDnD.Tk):
         frm_pwd = tk.Frame(self, bg="white")
         frm_pwd.pack(pady=5, fill="x", padx=20)
         tk.Label(frm_pwd, text="密码（可空，默认为1234）：", bg="white").pack(side="left")
-        self.entry_pwd = tk.Entry(frm_pwd)
+        self.entry_pwd = tk.Entry(frm_pwd, show="*")
         self.entry_pwd.insert(0, "")
         self.entry_pwd.pack(side="left", fill="x", expand=True)
 
@@ -41,7 +49,7 @@ class App(TkinterDnD.Tk):
         tk.Label(frm_wm, text="水印文本（仅嵌入时有效）：", bg="white").pack(anchor="w")
         self.text_wm = tk.Text(frm_wm, height=4)
         self.text_wm.pack(fill="both", expand=True)
-        self.text_wm.insert("1.0", "Copyright@\nAuthor@")
+        self.load_config()
 
         # 水印长度输入
         frm_len = tk.Frame(self, bg="white")
@@ -66,6 +74,11 @@ class App(TkinterDnD.Tk):
         self.entry_out = tk.Entry(frm_out)
         self.entry_out.insert(0, tempfile.gettempdir())
         self.entry_out.pack(side="left", fill="x", expand=True)
+        
+        # 重置配置按钮
+        frm_reset = tk.Frame(self, bg="white")
+        frm_reset.pack(pady=5, fill="x", padx=20)
+        tk.Button(frm_reset, text="重置配置", command=self.reset_config).pack(side="right")
 
         # 拖拽区域
         lbl = tk.Label(self, text="请将图片拖入此区域", bg="#f0f0f0", fg="black", relief="ridge", borderwidth=2)
@@ -89,7 +102,61 @@ class App(TkinterDnD.Tk):
         return pwd if pwd else "1234"
 
     def get_wm_text(self):
-        return self.text_wm.get("1.0", "end").rstrip()
+        text = self.text_wm.get("1.0", "end").rstrip()
+        self.save_config(text)
+        return text
+        
+    def load_config(self):
+        try:
+            if os.path.exists(self.config_path):
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                    self.entry_pwd.delete(0, tk.END)
+                    self.entry_pwd.insert(0, config.get("pwd", ""))
+                    self.text_wm.delete("1.0", tk.END)
+                    self.text_wm.insert("1.0", config.get("last_wm_text", "Copyright@\nAuthor@"))
+            else:
+                self.text_wm.delete("1.0", tk.END)
+                self.text_wm.insert("1.0", "Copyright@\nAuthor@")
+        except Exception as e:
+            print(f"加载配置失败: {e}")
+            self.text_wm.delete("1.0", tk.END)
+            self.text_wm.insert("1.0", "Copyright@\nAuthor@")
+            
+    def save_config(self, wm_text):
+        try:
+            config = {
+                "pwd": self.entry_pwd.get().strip(),
+                "last_wm_text": wm_text
+            }
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=4)
+        except Exception as e:
+            print(f"保存配置失败: {e}")
+            
+    def on_close(self):
+        ## 窗口关闭事件处理
+        try:
+            if not self._saved_before_close:
+                wm_text = self.text_wm.get("1.0", "end").rstrip()
+                self.save_config(wm_text)
+                self._saved_before_close = True
+        except Exception as e:
+            print(f"关闭时保存配置出错: {e}")
+        self.destroy()
+            
+    def reset_config(self):
+        try:
+            if os.path.exists(self.config_path):
+                os.remove(self.config_path)
+                self.entry_pwd.delete(0, tk.END)
+                self.text_wm.delete("1.0", tk.END)
+                self.text_wm.insert("1.0", "Copyright@\nAuthor@")
+                messagebox.showinfo("重置成功", "配置文件已删除，已恢复默认设置")
+            else:
+                messagebox.showinfo("提示", "配置文件不存在，无需重置")
+        except Exception as e:
+            messagebox.showerror("重置失败", f"重置配置时出错: {e}")
 
     def get_output_dir(self):
         path = self.entry_out.get().strip()
@@ -190,4 +257,17 @@ class App(TkinterDnD.Tk):
                 pass
 
 if __name__ == "__main__":
-    App().mainloop()
+    app = App()
+    try:
+        app.mainloop()
+    except Exception as e:
+        print(f"程序运行时出错: {e}")
+    finally:
+        try:
+            # 在窗口关闭前保存配置
+            if hasattr(app, '_saved_before_close') and not app._saved_before_close:
+                wm_text = app.text_wm.get("1.0", "end").rstrip()
+                app.save_config(wm_text)
+                app._saved_before_close = True
+        except Exception as e:
+            print(f"保存配置时出错: {e}")

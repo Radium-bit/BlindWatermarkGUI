@@ -10,7 +10,7 @@
 - ✅ 自动根据原图尺寸缩放，使用高质量 `LANCZOS` 算法
 - ✅ 自动识别用户临时目录
 - ✅ 自动清理临时文件
-- ✅ 预留`Copyright@`和`Author@`标识，方便填写，也可以自行修改内容
+- ✅ 预留 `Copyright@`和 `Author@`标识，方便填写，也可以自行修改内容
 
 ---
 
@@ -20,7 +20,7 @@
 
 ```bash
 pip install blind-watermark pillow tkinterdnd2-universal
-````
+```
 
 ---
 
@@ -29,6 +29,11 @@ pip install blind-watermark pillow tkinterdnd2-universal
 推荐使用 [PyInstaller](https://www.pyinstaller.org/) 创建单文件 `.exe`
 
 ### 1. 确保安装依赖后在目录执行以下命令
+
+```bash
+pyinstaller main.spec
+```
+*如无法成功编译，可以尝试使用原始命令（不推荐，会导致main.spec被覆盖）*
 ```bash
 pyinstaller --additional-hooks-dir=hooks --onefile --windowed main.py
 ```
