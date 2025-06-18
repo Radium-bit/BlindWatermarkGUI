@@ -14,6 +14,18 @@
 
 ---
 
+## ⚠️ 注意事项
+
+1. **原始文件保存**：
+   - 始终建议在打水印后，不要删除您的原始图片
+2. **水印信息记录**：
+   - 保持打水印后图像的完整文件名，如`xxx-Watermark-ws{长度}-size{宽}x{高}.png`
+   - 请记录使用的水印文本长度 及 原始图片尺寸（宽高）
+
+**！这些信息对后续水印提取非常重要 ！**
+
+---
+
 ## 📦 安装依赖
 
 需使用 Python 3.7 及以上版本。
@@ -33,7 +45,9 @@ pip install blind-watermark pillow tkinterdnd2-universal
 ```bash
 pyinstaller main.spec
 ```
+
 *如无法成功编译，可以尝试使用原始命令（不推荐，会导致main.spec被覆盖）*
+
 ```bash
 pyinstaller --additional-hooks-dir=hooks --onefile --windowed main.py
 ```
