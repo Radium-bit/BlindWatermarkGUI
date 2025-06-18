@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 from PIL import Image
 from blind_watermark import WaterMark
+import webbrowser
 
 # 程序版本号
 VERSION = r"0.1.1"
@@ -85,6 +86,13 @@ class App(TkinterDnD.Tk):
         lbl.pack(expand=True, fill="both", padx=20, pady=20)
         lbl.drop_target_register(DND_FILES)
         lbl.dnd_bind('<<Drop>>', self.on_drop)
+        
+        # 项目地址链接
+        self.project_address_label = tk.Label(self, text="项目地址:", font=("Arial", 10))
+        self.project_address_label.pack(pady=(10,0))
+        self.project_link = tk.Label(self, text="Radium-bit/BlindWatermarkGUI", fg="blue", cursor="hand2", font=("Arial", 10))
+        self.project_link.pack(pady=(0,5))
+        self.project_link.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/Radium-bit/BlindWatermarkGUI"))
 
     def on_drop(self, ev):
         for f in self.tk.splitlist(ev.data):
