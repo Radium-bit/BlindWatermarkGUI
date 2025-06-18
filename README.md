@@ -77,7 +77,7 @@ python main.py
 
 ## 📄 许可证 License
 
-本项目采用 [Apache License 2.0](LICENSE)。
+本项目采用 [Apache License 2.0](LICENSE.txt)。
 
 ```text
 Copyright 2025 Radium-bit
