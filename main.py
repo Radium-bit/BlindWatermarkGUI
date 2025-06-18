@@ -13,13 +13,19 @@ from pathlib import Path
 from PIL import Image
 from blind_watermark import WaterMark
 import webbrowser
+import time
+import threading
 
 # 程序版本号
-VERSION = r"0.1.1"
+VERSION = r"0.1.3"
 
 class App(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
+        self.processing_window = None
+        self.processing_label = None
+        self.processing_animation = None
+        self.processing_active = False
         self.config_path = os.path.join(os.environ["USERPROFILE"], "radiumbit.blindwatermark.config.json")
         self._saved_before_close = False
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -36,6 +42,14 @@ class App(TkinterDnD.Tk):
         tk.Radiobutton(frm_mode, text="嵌入水印", variable=self.mode, value="embed", bg="white").pack(side="left")
         tk.Radiobutton(frm_mode, text="提取水印", variable=self.mode, value="extract", bg="white").pack(side="left")
 
+        # 输出格式选择
+        self.output_format = tk.StringVar(value="PNG")
+        format_frame = tk.Frame(self, bg="white")
+        format_frame.pack(pady=5, fill="x", padx=20)
+        tk.Label(format_frame, text="输出格式:", bg="white").pack(side="left")
+        tk.Radiobutton(format_frame, text="PNG", variable=self.output_format, value="PNG", bg="white").pack(side="left", padx=5)
+        tk.Radiobutton(format_frame, text="JPG", variable=self.output_format, value="JPG", bg="white").pack(side="left", padx=5)
+        
         # 密码输入
         frm_pwd = tk.Frame(self, bg="white")
         frm_pwd.pack(pady=5, fill="x", padx=20)
@@ -82,7 +96,7 @@ class App(TkinterDnD.Tk):
         tk.Button(frm_reset, text="重置配置", command=self.reset_config).pack(side="right")
 
         # 拖拽区域
-        lbl = tk.Label(self, text="请将图片拖入此区域", bg="#f0f0f0", fg="black", relief="ridge", borderwidth=2)
+        lbl = tk.Label(self, text="请将图片拖入此区域", bg="#f0f0f0", fg="black", relief="ridge", borderwidth=2, height=10)
         lbl.pack(expand=True, fill="both", padx=20, pady=20)
         lbl.drop_target_register(DND_FILES)
         lbl.dnd_bind('<<Drop>>', self.on_drop)
@@ -153,6 +167,43 @@ class App(TkinterDnD.Tk):
             print(f"关闭时保存配置出错: {e}")
         self.destroy()
             
+    def show_processing_window(self, message):
+        """显示处理中窗口"""
+        if not self.processing_window:
+            self.processing_window = tk.Toplevel(self)
+            self.processing_window.title("处理中")
+            self.processing_window.geometry("300x100")
+            self.processing_window.resizable(False, False)
+            self.processing_window.protocol("WM_DELETE_WINDOW", lambda: None)  # 禁用关闭按钮
+            
+            self.processing_label = tk.Label(self.processing_window, text=message)
+            self.processing_label.pack(pady=10)
+            
+            # 简单的动画效果
+            self.processing_animation = tk.Label(self.processing_window, text="◐")
+            self.processing_animation.pack()
+            self.animate_processing()
+            
+        self.processing_active = True
+    
+    def hide_processing_window(self):
+        """隐藏处理中窗口"""
+        if self.processing_window:
+            self.processing_active = False
+            self.processing_window.destroy()
+            self.processing_window = None
+    
+    def animate_processing(self):
+        """处理动画效果"""
+        if not self.processing_active:
+            return
+            
+        frames = ["◐", "◓", "◑", "◒"]
+        current_frame = self.processing_animation.cget("text")
+        next_frame = frames[(frames.index(current_frame) + 1) % len(frames)]
+        self.processing_animation.config(text=next_frame)
+        self.after(200, self.animate_processing)
+    
     def reset_config(self):
         try:
             if os.path.exists(self.config_path):
@@ -186,83 +237,160 @@ class App(TkinterDnD.Tk):
         return None
 
     def embed_watermark(self, filepath):
-        output_dir = self.get_output_dir()
-        os.makedirs(output_dir, exist_ok=True)
+        def worker():
+            try:
+                # 显示处理窗口
+                self.after(0, lambda: self.show_processing_window("正在处理图片，请稍候..."))
+                output_dir = self.get_output_dir()
+                os.makedirs(output_dir, exist_ok=True)
 
-        name, ext = os.path.splitext(os.path.basename(filepath))
-        image = Image.open(filepath)
-        width, height = image.size
+                name, ext = os.path.splitext(os.path.basename(filepath))
+                # 读取图片
+                image = Image.open(filepath)
+                width, height = image.size
+                
+                # 检查并转换JPG色彩空间(仅当输出格式为JPG时)
+                if self.output_format.get() == "JPG":
+                    if filepath.lower().endswith(('.jpg', '.jpeg')):
+                        if image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0':
+                            # 启动长时间操作提示
+                            self.after(0, lambda: self.show_processing_window("正在转换色彩空间，请稍候..."))
+                            
+                            start_time = time.time()
+                            image = image.convert('RGB')
+                            
+                            # 如果转换时间超过1秒，保持提示窗口
+                            if time.time() - start_time > 1:
+                                self.after(0, lambda: messagebox.showinfo("色彩空间转换", "为确保兼容性，已将图片色彩空间转换为sRGB 4:2:0"))
+                            else:
+                                self.after(0, self.hide_processing_window)
+                            
+                # 定义所有临时文件变量
+                tmp_in = os.path.join(output_dir, f"input{ext}")
+                tmp_out = os.path.join(output_dir, f"output{ext}")
+                temp_img = None
+                
+                # 临时保存转换后的图片(仅当需要转换时)
+                if self.output_format.get() == "JPG" and filepath.lower().endswith(('.jpg', '.jpeg')) and \
+                (image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0'):
+                    temp_img = os.path.join(os.path.dirname(filepath), "temp_converted.jpg")
+                    image.save(temp_img, "JPEG", subsampling="4:2:0", quality=100)
+                    image = Image.open(temp_img)
+                    width, height = image.size
+                
+                # 保存输入图片
+                image.save(tmp_in)
+                
+                # 清理临时文件
+                if temp_img and os.path.exists(temp_img):
+                    os.remove(temp_img)                
+                wm_text = self.get_wm_text()
+                pwd = self.get_pwd()
 
-        tmp_in = os.path.join(output_dir, f"input{ext}")
-        tmp_out = os.path.join(output_dir, f"output{ext}")
-        image.save(tmp_in)
+                bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
+                bwm1.read_img(tmp_in)
+                bwm1.read_wm(wm_text, mode='str')
+                bwm1.embed(tmp_out)
 
-        wm_text = self.get_wm_text()
-        pwd = self.get_pwd()
+                wm_len = len(bwm1.wm_bit)
+                output_ext = ".jpg" if self.output_format.get() == "JPG" else ext
+                dst_img = os.path.join(
+                    os.path.dirname(filepath),
+                    f"{name}-Watermark-ws{wm_len}-size{width}x{height}{output_ext}"
+                )
+                
+                if self.output_format.get() == "JPG":
+                    from PIL import ImageCms
+                    # 创建sRGB ICC配置文件
+                    srgb_profile = ImageCms.createProfile("sRGB")
+                    # 保存带ICC配置的JPG
+                    img = Image.open(tmp_out).convert('RGB')
+                    img.save(dst_img, "JPEG", quality=100, subsampling="4:2:0", 
+                            icc_profile=ImageCms.ImageCmsProfile(srgb_profile).tobytes())
+                else:
+                    shutil.copy2(tmp_out, dst_img)
+                # 确保处理窗口关闭
+                self.after(0, self.hide_processing_window)
+                self.after(0, lambda: messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n【请完善保存以下内容！】\n水印长度：{wm_len} 尺寸：{width}x{height}"))
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror("错误", str(e)))
+            finally:
+                self.after(0, self.hide_processing_window)
+                for f in [tmp_in, tmp_out]:
+                    if os.path.exists(f):
+                        try:
+                            os.remove(f)
+                        except:
+                            pass
 
-        bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
-        bwm1.read_img(tmp_in)
-        bwm1.read_wm(wm_text, mode='str')
-        bwm1.embed(tmp_out)
+        # 启动工作线程
+        threading.Thread(target=worker, daemon=True).start()
+        
+        # 删除临时转换的图片
+        if 'temp_img' in locals() and os.path.exists(temp_img):
+            os.remove(temp_img)
+        
+        # 隐藏处理窗口
+        self.hide_processing_window()
 
-        wm_len = len(bwm1.wm_bit)
-        dst_img = os.path.join(
-            os.path.dirname(filepath),
-            f"{name}-Watermark-ws{wm_len}-size{width}x{height}{ext}"
-        )
-        shutil.copy2(tmp_out, dst_img)
 
-        messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n【请完善保存以下内容！】\n水印长度：{wm_len} 尺寸：{width}x{height}")
-
-        for f in [tmp_in, tmp_out]:
-            if os.path.exists(f):
-                try:
-                    os.remove(f)
-                except:
-                    pass
 
     def extract_watermark(self, filepath):
-        pwd = self.get_pwd()
-        name = os.path.basename(filepath)
-        ext = os.path.splitext(filepath)[1]
-
-        output_dir = self.get_output_dir()
-        tmp_in = os.path.join(output_dir, f"input.png")
-
-        # 读取 ws
-        wm_len = self.get_ws()
-        if wm_len is None:
-            m = re.search(r"ws(\d+)", name)
-            if not m:
-                raise ValueError("文件名中未找到 ws（如 ws256）\n可手动输入或改名")
-            wm_len = int(m.group(1))
-
-        # 读取原始尺寸
-        target_size = self.get_target_size()
-        if target_size is None:
-            m = re.search(r"size(\d+)x(\d+)", name)
-            if not m:
-                raise ValueError("文件名中未找到原图尺寸（如 size1920x1080）\n可手动输入或改名")
-            target_size = int(m.group(1)), int(m.group(2))
-
-        # 判断是否需要 resize
-        img = Image.open(filepath)
-        if img.size == target_size:
-            img.save(tmp_in)
-        else:
-            resized = img.resize(target_size, Image.LANCZOS) #使用LANCZOS算法重新匹配图像
-            resized.save(tmp_in, format="PNG")
-
-        bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
-        wm_extract = bwm1.extract(tmp_in, wm_shape=wm_len, mode='str')
-        wm_extract = wm_extract.replace("\\n", "\n")
-        messagebox.showinfo("提取成功", f"水印内容：\n{wm_extract}")
-
-        if os.path.exists(tmp_in):
+        def worker():
             try:
-                os.remove(tmp_in)
-            except:
-                pass
+                # 显示处理窗口
+                self.after(0, lambda: self.show_processing_window("正在处理图片，请稍候..."))
+                
+                pwd = self.get_pwd()
+                name = os.path.basename(filepath)
+                ext = os.path.splitext(filepath)[1]
+
+                output_dir = self.get_output_dir()
+                tmp_in = os.path.join(output_dir, f"input.png")
+
+                # 读取 ws
+                wm_len = self.get_ws()
+                if wm_len is None:
+                    m = re.search(r"ws(\d+)", name)
+                    if not m:
+                        raise ValueError("文件名中未找到 ws（如 ws256）\n可手动输入或改名")
+                    wm_len = int(m.group(1))
+
+                # 读取原始尺寸
+                target_size = self.get_target_size()
+                if target_size is None:
+                    m = re.search(r"size(\d+)x(\d+)", name)
+                    if not m:
+                        raise ValueError("文件名中未找到 size（如 size800x600）\n可手动输入或改名")
+                    target_size = int(m.group(1)), int(m.group(2))
+
+                # 判断是否需要 resize
+                img = Image.open(filepath)
+                if img.size == target_size:
+                    img.save(tmp_in)
+                else:
+                    resized = img.resize(target_size, Image.LANCZOS) #使用LANCZOS算法重新匹配图像
+                    resized.save(tmp_in, format="PNG")
+
+                bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
+                wm_extract = bwm1.extract(tmp_in, wm_shape=wm_len, mode='str')
+                wm_extract = wm_extract.replace("\\n", "\n")
+                # 确保处理窗口关闭
+                self.after(0, self.hide_processing_window)
+                self.after(0, lambda: messagebox.showinfo("提取成功", f"水印内容：\n{wm_extract}"))
+
+                if os.path.exists(tmp_in):
+                    try:
+                        os.remove(tmp_in)
+                    except:
+                        pass
+            except Exception as e:
+                # 确保处理窗口关闭
+                self.after(0, self.hide_processing_window)
+                self.after(0, lambda: messagebox.showerror("错误", str(e)))
+                
+        # 启动工作线程
+        threading.Thread(target=worker, daemon=True).start()
 
 if __name__ == "__main__":
     app = App()
