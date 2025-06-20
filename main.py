@@ -296,12 +296,18 @@ class App(TkinterDnD.Tk):
         self.qr_window.title("水印提取结果")
         self.qr_window.geometry("600x700")
         
+        # 清理文件回调
+        def cleanup_callback():
+            return True
+
         # 添加窗口关闭事件处理
         def on_close():
             if qr_path and os.path.exists(qr_path):
                 try:
                     os.remove(qr_path)
+                    return cleanup_callback
                 except:
+                    return cleanup_callback
                     pass
             self.qr_window.destroy()
             
@@ -480,6 +486,11 @@ class App(TkinterDnD.Tk):
                         bwm1.embed(tmp_out)
                     except Exception as e2:
                         messagebox.showerror("错误", f"水印嵌入失败: {str(e2)}\n请尝试使用更小的水印尺寸")
+                        if os.path.exists(qr_path):
+                            try:
+                                os.unlink(qr_path)
+                            except Exception as e:
+                                print(f"删除临时文件失败: {e}")
                         return
                 
                 # 延迟清理临时文件
@@ -559,6 +570,7 @@ class App(TkinterDnD.Tk):
                     img_128 = Image.open(tmp_out)
                     # 尝试解码二维码
                     qreader = self.qreader
+                    print(f'128x128临时文件路径: 输入={tmp_in} 输出={tmp_out}')
                     if img_128.mode != 'RGB':
                         img_128 = img_128.convert('RGB')
                     img_array = np.array(img_128)
@@ -584,6 +596,11 @@ class App(TkinterDnD.Tk):
                         text = qreader.detect_and_decode(image=img_array)[0]
                 except Exception as e:
                     print(f"128x128提取失败: {e}")
+                    # 清理临时文件
+                    for f in [tmp_out]:
+                        if os.path.exists(f):
+                            os.unlink(f)
+                    # import traceback
                     # print("完整错误追踪:")
                     # traceback.print_exc()
                     pass
@@ -594,10 +611,6 @@ class App(TkinterDnD.Tk):
                     try:
                         qreader = self.qreader
                         print(f'64x64临时文件路径: 输入={tmp_in} 输出={tmp_out}')
-                        # 添加临时文件路径验证
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_out_file:
-                            tmp_out = tmp_out_file.name
-                            print(f'触发With临时文件路径: 输入={tmp_in} 输出={tmp_out}')
                         
                         # 在extract调用前添加参数检查
                         if not all([tmp_in, tmp_out]):
@@ -631,8 +644,12 @@ class App(TkinterDnD.Tk):
                             img_array = np.array(img_64.convert('RGB'))
                             text = qreader.detect_and_decode(image=img_array)[0]
                     except Exception as e:
-                        import traceback
                         print(f"64x64提取失败: {e}")
+                        # 清理临时文件
+                        for f in [tmp_out]:
+                            if os.path.exists(f):
+                                os.unlink(f)
+                        # import traceback
                         # print("完整错误追踪:")
                         # traceback.print_exc()
                         pass
