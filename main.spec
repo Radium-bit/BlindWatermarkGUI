@@ -2,10 +2,13 @@
 from PyInstaller.utils.hooks import collect_data_files
 import os
 import json
+import lzma
 from dotenv import load_dotenv
 
 load_dotenv('DEV.ENV')
+load_dotenv('BUILD.ENV', override=True)
 env_path = os.getenv('SITE_PACKAGE_PATH')
+VERSION = os.getenv('VERSION')
 qrdet_model_path = os.path.join(env_path,'qrdet','.model')
 
 # 定义 block_cipher
@@ -40,7 +43,10 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
+        # qr模型
         (qrdet_model_path, 'qrdet/.model'),
+        # 构建环境
+        ('BUILD.ENV', '.'),
         # 包含修复文件
         (os.path.join(hooks_dir, 'torch_fixes.py'), '.'),
         (os.path.join(hooks_dir, 'torch_numpy_fix.py'), '.'),
@@ -61,7 +67,8 @@ a = Analysis(
     noarchive=False
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+# pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher, compression=lzma, compression_level=6)
 
 exe = EXE(
     pyz,
@@ -69,19 +76,19 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='BlindWatermarkGUI',
+    name=f'BlindWatermarkGUI_v{VERSION}',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False, ## 测试时为true
+    console=False, ## 测试时为True
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
     onefile=True,
-    optimize=2 ## Debug需要改回0
+    optimize=2 ## Debug需要改回0，生产2
 )

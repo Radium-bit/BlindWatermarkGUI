@@ -3,7 +3,7 @@
 ## See LICENSE file for full terms
 
 # 程序版本号
-VERSION = r"0.2.0"
+VERSION = r""
 # 开发模型路径
 DEV_MODEL_PATH = r""
 # SitePackagePath
@@ -14,7 +14,7 @@ import sys
 from dotenv import load_dotenv
 import shutil
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, Checkbutton, BooleanVar, Frame
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import tempfile
 import re
@@ -29,12 +29,14 @@ import threading
 import qrcode
 from io import BytesIO
 from pyzbar.pyzbar import decode
+from noise import pnoise2
 
 
 
 class App(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
+        self.version = " Unknown"
         # 设置模型路径环境变量（必须在导入qreader前执行）
         self.set_model_path()
         # 初始化QReader
@@ -50,7 +52,8 @@ class App(TkinterDnD.Tk):
         self.config_path = os.path.join(os.environ["USERPROFILE"], "radiumbit.blindwatermark.config.json")
         self._saved_before_close = False
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.title(f"BlindWatermarkGUI v{VERSION}")
+        self._load_build_env()
+        self.title(f"BlindWatermarkGUI v{self.version}")
         self.geometry("580x560")
         self.configure(bg="white")
         self.qr_window = None
@@ -71,6 +74,16 @@ class App(TkinterDnD.Tk):
         tk.Label(format_frame, text="输出格式:", bg="white").pack(side="left")
         tk.Radiobutton(format_frame, text="PNG", variable=self.output_format, value="PNG", bg="white").pack(side="left", padx=5)
         tk.Radiobutton(format_frame, text="JPG", variable=self.output_format, value="JPG", bg="white").pack(side="left", padx=5)
+        
+        # 增强模式选项
+        self.enhanced_mode = BooleanVar(value=False)
+        self.enhanced_check = Checkbutton(
+            format_frame, 
+            text="增强抗干扰模式",
+            variable=self.enhanced_mode,
+            command=self.show_enhanced_warning
+        )
+        self.enhanced_check.pack(side='top', padx=5, pady=5)
         
         # 密码输入
         frm_pwd = tk.Frame(self, bg="white")
@@ -125,9 +138,7 @@ class App(TkinterDnD.Tk):
         self.qr_frame = tk.Frame(self)
         self.qr_frame.pack(pady=10)
         
-        tk.Label(self.qr_frame, text="水印文本:").pack(side=tk.LEFT)
-        self.wm_text = tk.Entry(self.qr_frame, width=30)
-        self.wm_text.pack(side=tk.LEFT, padx=5)
+
         lbl.drop_target_register(DND_FILES)
         lbl.dnd_bind('<<Drop>>', self.on_drop)
         
@@ -137,6 +148,34 @@ class App(TkinterDnD.Tk):
         self.project_link = tk.Label(self, text="Radium-bit/BlindWatermarkGUI", fg="blue", cursor="hand2", font=("Arial", 10))
         self.project_link.pack(pady=(0,5))
         self.project_link.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/Radium-bit/BlindWatermarkGUI"))
+
+    def _load_build_env(self):
+        """加载BUILD.ENV配置文件并设置版本号"""
+        try:
+            # 获取基础路径
+            if getattr(sys, 'frozen', False):
+                # 打包环境
+                base_path = sys._MEIPASS
+                build_env_path = os.path.join(base_path, 'BUILD.ENV')
+            else:
+                # 开发环境
+                build_env_path = 'BUILD.ENV'
+            # 检查文件是否存在
+            if os.path.exists(build_env_path):
+                load_dotenv(build_env_path)
+                version = os.getenv('VERSION')
+                if version:
+                    self.version = version
+                else:
+                    print("警告：BUILD.ENV中未找到VERSION配置")
+                    self.version = " Unknown"  # 默认版本
+            else:
+                print(f"警告：未找到BUILD.ENV文件，路径：{build_env_path}")
+                self.version = " Unknown"  # 默认版本
+        except Exception as e:
+            print(f"加载BUILD.ENV失败: {e}")
+            self.version = " Unknown"  # 默认版本
+
 
     def on_drop(self, ev):
         for f in self.tk.splitlist(ev.data):
@@ -401,6 +440,10 @@ class App(TkinterDnD.Tk):
             return w, h
         return None
 
+    def show_enhanced_warning(self):
+        if self.enhanced_mode.get():
+            messagebox.showwarning("提示", "增强模式会轻微降低图像质量！\n但可提高抗干扰能力，\n请确保您的图片不会丢失重要信息。")
+
     def embed_watermark(self, filepath):
         def worker():
             try:
@@ -464,6 +507,28 @@ class App(TkinterDnD.Tk):
                 wm_text = self.get_wm_text()
                 pwd = self.get_pwd()
 
+                # 应用增强模式
+                if self.enhanced_mode.get():
+                    try:
+                        # 读取临时文件
+                        img = Image.open(tmp_in).convert("RGB") # 读图，转RGB模型
+                        arr = np.array(img).astype(np.float32)  # 避免uint8溢出
+                        print("Useing Enhanced Mode...")
+                        # 生成2D柏林噪声
+                        noise = np.zeros((arr.shape[0], arr.shape[1]), dtype=np.float32)
+                        for i in range(arr.shape[0]):
+                            for j in range(arr.shape[1]):
+                                noise[i][j] = pnoise2(i / 50.0, j / 50.0, octaves=2)
+
+                        # 扩展为3D通道，应用到每个颜色通道
+                        noise_3d = np.repeat(noise[:, :, np.newaxis], 3, axis=2)
+                        arr += noise_3d * 12.8  # 控制噪声强度
+                        arr = np.clip(arr, 0, 255).astype(np.uint8)
+                        # 回写文件
+                        Image.fromarray(arr).save(tmp_in)
+                    except Exception as e:
+                        print(f"噪声处理失败: {e}")
+                
                 # 先尝试128x128二维码嵌入
                 try:
                     bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))

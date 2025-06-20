@@ -41,7 +41,7 @@
 1. 安装依赖
 
 ```bash
-pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv
+pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv noise
 ```
 
 2. 复制程序目录下的`DEV.ENV_SAMPLE`文件并重命名为`DEV.ENV`
