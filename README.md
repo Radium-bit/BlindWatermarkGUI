@@ -11,6 +11,7 @@
 - ✅ 自动识别用户临时目录
 - ✅ 自动清理临时文件
 - ✅ 预留 `Copyright@`和 `Author@`标识，方便填写，也可以自行修改内容
+- ✅ 更强的抗干扰编码方式，使用QR Code和YOLO进行水印编码识别
 
 ---
 
@@ -24,15 +25,34 @@
 
 **！这些信息对后续水印提取非常重要 ！**
 
+【WARNING！】
+
+**自v2.0版本开始，由于抗干扰模式更新，新版水印将不再向下兼容**
+
+**向下兼容的提取正在制作中，如果您的水印使用旧版本打上，请使用v0.1.3版本**
+
 ---
 
-## 📦 安装依赖
+## 📦 安装依赖/编译准备
 
-需使用 Python 3.7 及以上版本。
+ **Python版本**: ≥3.7, <3.12
+
+1. 安装依赖
 
 ```bash
-pip install blind-watermark pillow tkinterdnd2-universal
+pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv
 ```
+
+2. 复制程序目录下的`DEV.ENV_SAMPLE`文件并重命名为`DEV.ENV`
+
+3. 编辑`DEV.ENV`的内容以符合您当前的Python开发环境
+
+```python
+# Site-Packages目录示例
+SITE_PACKAGE_PATH='C:\Python310\Lib\site-packages\qrdet\.model'
+```
+
+至此打包运行前准备工作已完成
 
 ---
 
@@ -43,13 +63,7 @@ pip install blind-watermark pillow tkinterdnd2-universal
 ### 1. 确保安装依赖后在目录执行以下命令
 
 ```bash
-pyinstaller main.spec
-```
-
-*如无法成功编译，可以尝试使用原始命令（不推荐，会导致main.spec被覆盖）*
-
-```bash
-pyinstaller --additional-hooks-dir=hooks --onefile --windowed main.py
+pyinstaller --clean main.spec
 ```
 
 ---
@@ -58,6 +72,8 @@ pyinstaller --additional-hooks-dir=hooks --onefile --windowed main.py
 
 ### 1. 运行程序
 
+如果你没有exe或打算手动运行源代码，执行下列命令
+
 ```bash
 python main.py
 ```
@@ -65,10 +81,13 @@ python main.py
 ### 2. 嵌入水印（Embed）
 
 1. 启动后选择 “嵌入水印” 模式
-2. 输入水印内容，可换行
-3. 拖拽图片进入中间区域
-4. 自动输出：`原名-Watermark-ws{长度}-size{宽}x{高}.png`，例如：
 
+2. 输入水印内容，可换行
+
+3. 拖拽图片进入中间区域
+
+4. 自动输出：`原名-Watermark-ws{长度}-size{宽}x{高}.png`，例如：
+   
    ```
    example-Watermark-ws256-size1920x1080.png
    ```
@@ -76,10 +95,13 @@ python main.py
 ### 3. 提取水印（Extract）
 
 1. 选择 “提取水印” 模式
-2. 拖拽已加水印的图片
-3. 自动从文件名中识别 `ws长度` 与 `sizeWxH`：
 
+2. 拖拽已加水印的图片
+
+3. 自动从文件名中识别 `ws长度` 与 `sizeWxH`：
+   
    * 若未识别，可手动输入水印长度与尺寸
+
 4. 输出结果会弹窗展示水印内容
 
 ---
@@ -124,4 +146,18 @@ limitations under the License.
 
 ## 💡 后续计划（TODO）
 
-咕咕咕咕咕咕......
+- [ ] 对旧版本水印的解码支持
+
+- [ ] 增加对自定义图像文件的嵌入/提取
+
+- [ ] 对任意文件嵌入的支持
+
+- [ ] 基于PGP的签名校验和机制
+
+- [ ] 优化性能
+
+- [ ] 减少打包体积
+
+- [ ] 美化图形界面
+
+- [ ] 进一步简化用户流程，实现操作向导

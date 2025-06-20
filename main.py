@@ -1,7 +1,17 @@
 ## Copyright (c) 2025 Radium-bit
 ## SPDX-License-Identifier: Apache-2.0
 ## See LICENSE file for full terms
+
+# 程序版本号
+VERSION = r"0.2.0"
+# 开发模型路径
+DEV_MODEL_PATH = r""
+# SitePackagePath
+SITE_PACKAGE_PATH = r""
+
 import os
+import sys
+from dotenv import load_dotenv
 import shutil
 import tkinter as tk
 from tkinter import messagebox
@@ -10,18 +20,29 @@ import tempfile
 import re
 import json
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageTk, ImageEnhance, ImageFilter
+import numpy as np
 from blind_watermark import WaterMark
 import webbrowser
 import time
 import threading
+import qrcode
+from io import BytesIO
+from pyzbar.pyzbar import decode
 
-# 程序版本号
-VERSION = r"0.1.3"
+
 
 class App(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
+        # 设置模型路径环境变量（必须在导入qreader前执行）
+        self.set_model_path()
+        # 初始化QReader
+        from debug.module_tracker import start_tracking ##Module import Tracker(Debug USE)
+        ## [DEBUG] 用于测试记录QReader所使用的隐藏导入模块
+        # start_tracking()
+        from qreader import QReader
+        self.qreader = QReader()
         self.processing_window = None
         self.processing_label = None
         self.processing_animation = None
@@ -32,6 +53,7 @@ class App(TkinterDnD.Tk):
         self.title(f"BlindWatermarkGUI v{VERSION}")
         self.geometry("580x560")
         self.configure(bg="white")
+        self.qr_window = None
 
         self.mode = tk.StringVar(value="embed")
 
@@ -98,6 +120,14 @@ class App(TkinterDnD.Tk):
         # 拖拽区域
         lbl = tk.Label(self, text="请将图片拖入此区域", bg="#f0f0f0", fg="black", relief="ridge", borderwidth=2, height=10)
         lbl.pack(expand=True, fill="both", padx=20, pady=20)
+        
+        # 二维码水印设置
+        self.qr_frame = tk.Frame(self)
+        self.qr_frame.pack(pady=10)
+        
+        tk.Label(self.qr_frame, text="水印文本:").pack(side=tk.LEFT)
+        self.wm_text = tk.Entry(self.qr_frame, width=30)
+        self.wm_text.pack(side=tk.LEFT, padx=5)
         lbl.drop_target_register(DND_FILES)
         lbl.dnd_bind('<<Drop>>', self.on_drop)
         
@@ -112,12 +142,19 @@ class App(TkinterDnD.Tk):
         for f in self.tk.splitlist(ev.data):
             f = f.strip('{}')
             try:
+                if not os.path.exists(f):
+                    messagebox.showerror("错误", "文件不存在或路径无效")
+                    return
+                    
                 if self.mode.get() == "embed":
                     self.embed_watermark(f)
                 else:
                     self.extract_watermark(f)
             except Exception as e:
                 messagebox.showerror("错误", str(e))
+                # 确保处理窗口关闭
+                if hasattr(self, 'hide_processing_window'):
+                    self.hide_processing_window()
 
     def get_pwd(self):
         pwd = self.entry_pwd.get().strip()
@@ -128,6 +165,25 @@ class App(TkinterDnD.Tk):
         self.save_config(text)
         return text
         
+    def set_model_path(self):
+        """设置qreader模型路径环境变量"""
+        if getattr(sys, 'frozen', False):
+            # 打包环境：使用临时解压目录
+            base_path = sys._MEIPASS
+            model_path = os.path.join(base_path, "qrdet", ".model", "qrdet-s.pt")
+        else:
+            # 开发环境：使用默认安装路径，从DOT.ENV加载
+            if not os.path.exists('DEV.ENV'):
+                print("警告：未找到DEV.ENV文件，请创建并配置路径")
+            else:
+                load_dotenv('DEV.ENV')
+                envpath = os.getenv('SITE_PACKAGE_PATH')
+                model_path = os.path.join(envpath, "qrdet", ".model", "qrdet-s.pt")
+        
+        # 关键！设置环境变量阻止下载
+        os.environ["QRDET_MODEL_PATH"] = model_path
+        print(f"模型路径已设置为: {model_path}")  # 调试用
+
     def load_config(self):
         try:
             if os.path.exists(self.config_path):
@@ -157,14 +213,19 @@ class App(TkinterDnD.Tk):
             print(f"保存配置失败: {e}")
             
     def on_close(self):
-        ## 窗口关闭事件处理
-        try:
-            if not self._saved_before_close:
-                wm_text = self.text_wm.get("1.0", "end").rstrip()
-                self.save_config(wm_text)
-                self._saved_before_close = True
-        except Exception as e:
-            print(f"关闭时保存配置出错: {e}")
+        from debug.module_tracker import stop_and_save_tracking
+        ## [DEBUG] 用于测试记录QReader所使用的隐藏导入模块
+        # stop_and_save_tracking()
+        if not self._saved_before_close:
+            try:
+                with open(self.config_path, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "pwd": self.entry_pwd.get().strip(),
+                        "last_wm_text": self.text_wm.get("1.0", "end").rstrip()
+                    }, f, ensure_ascii=False, indent=4)
+                app._saved_before_close = True
+            except Exception as e:
+                print(f"保存配置时出错: {e}")
         self.destroy()
             
     def show_processing_window(self, message):
@@ -192,6 +253,104 @@ class App(TkinterDnD.Tk):
             self.processing_active = False
             self.processing_window.destroy()
             self.processing_window = None
+            
+    def generate_qr_watermark(self, size=128):
+        """生成二维码水印文件
+        Args:size: 二维码尺寸 (默认128)
+        """
+        try:
+            wm_text = self.text_wm.get("1.0", "end").strip()
+            if not wm_text:
+                messagebox.showerror("错误", "请输入水印文本")
+                return None
+                
+            # 创建临时文件
+            tmp_file = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name
+            
+            # 生成二维码
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_M,
+                box_size=10,
+                border=1,
+            )
+            qr.add_data(wm_text)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")            
+            # 调整二维码尺寸
+            img = img.resize((size, size), Image.LANCZOS)
+            # 保存为JPG（缩减体积）
+            img.save(tmp_file, "JPEG", quality=100)
+            
+            return tmp_file
+        except Exception as e:
+            messagebox.showerror("错误", f"生成二维码失败: {str(e)}")
+            return None
+            
+    def show_qr_code(self, qr_path, text=None, status=None, *images):
+        ## 显示二维码窗口
+        if self.qr_window:
+            self.qr_window.destroy()
+            
+        self.qr_window = tk.Toplevel(self)
+        self.qr_window.title("水印提取结果")
+        self.qr_window.geometry("600x700")
+        
+        # 添加窗口关闭事件处理
+        def on_close():
+            if qr_path and os.path.exists(qr_path):
+                try:
+                    os.remove(qr_path)
+                except:
+                    pass
+            self.qr_window.destroy()
+            
+        self.qr_window.protocol("WM_DELETE_WINDOW", on_close)
+        
+        # 显示状态标题
+        if status==True:
+            tk.Label(self.qr_window, text="水印提取成功", font=("Arial", 12, "bold")).pack()
+        else:
+            tk.Label(self.qr_window, text="水印提取失败，请检查下方是否存在二维码图像", font=("Arial", 12, "bold")).pack()
+        
+        # 处理传入的图片
+        if images:
+            for img_data in images:
+                if img_data is not None:
+                    size, img_array = img_data
+                    # 将numpy数组转换回PIL Image
+                    img = Image.fromarray(img_array)
+                    # 对小于256的图片进行放大
+                    if max(img.size) < 256:
+                        scale = 256 / max(img.size)
+                        new_size = (int(img.size[0] * scale), int(img.size[1] * scale))
+                        img = img.resize(new_size, Image.Resampling.LANCZOS)
+                    img_tk = ImageTk.PhotoImage(img)
+                    label = tk.Label(self.qr_window, image=img_tk)
+                    label.image = img_tk  # 保持引用
+                    label.pack(pady=5)
+                    # 显示尺寸标签
+                    tk.Label(self.qr_window, text=f"尺寸: {size}").pack()
+        elif qr_path:
+            try:
+                img = Image.open(qr_path)
+                img_tk = ImageTk.PhotoImage(img)
+                label = tk.Label(self.qr_window, image=img_tk)
+                label.image = img_tk  # 保持引用
+                label.pack(pady=5)
+            except Exception as e:
+                messagebox.showerror("错误", f"无法显示图片: {str(e)}")
+        # 显示解码文本（如果有）
+        if text:
+            tk.Label(self.qr_window, text="解码文本:", font=("Arial", 10, "bold")).pack()
+            text_label = tk.Label(self.qr_window, text=text, wraplength=380, justify="left")
+            text_label.pack(pady=5)
+        
+        # 关闭按钮
+        close_btn = tk.Button(self.qr_window, text="关闭", 
+                            command=lambda: [os.unlink(qr_path) if qr_path and os.path.exists(qr_path) else None,
+                            self.qr_window.destroy()])
+        close_btn.pack(pady=10)
     
     def animate_processing(self):
         """处理动画效果"""
@@ -243,7 +402,16 @@ class App(TkinterDnD.Tk):
                 self.after(0, lambda: self.show_processing_window("正在处理图片，请稍候..."))
                 output_dir = self.get_output_dir()
                 os.makedirs(output_dir, exist_ok=True)
-
+                # 生成二维码水印
+                # 先尝试128x128尺寸
+                qr_path = self.generate_qr_watermark(128)
+                if not qr_path:
+                    return
+                # 确保二维码文件存在
+                if not os.path.exists(qr_path):
+                    self.after(0, lambda: messagebox.showerror("错误", "二维码水印生成失败"))
+                    return
+                
                 name, ext = os.path.splitext(os.path.basename(filepath))
                 # 读取图片
                 image = Image.open(filepath)
@@ -278,19 +446,47 @@ class App(TkinterDnD.Tk):
                     image = Image.open(temp_img)
                     width, height = image.size
                 
-                # 保存输入图片
-                image.save(tmp_in)
+                # 保存输入图片并确保文件关闭
+                with open(tmp_in, 'wb') as f:
+                    image.save(f)
                 
-                # 清理临时文件
-                if temp_img and os.path.exists(temp_img):
-                    os.remove(temp_img)                
+                # 确保二维码文件已关闭
+                if os.path.exists(qr_path):
+                    with open(qr_path, 'rb') as f:
+                        pass  # 确保文件已关闭
+                
                 wm_text = self.get_wm_text()
                 pwd = self.get_pwd()
 
-                bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
-                bwm1.read_img(tmp_in)
-                bwm1.read_wm(wm_text, mode='str')
-                bwm1.embed(tmp_out)
+                # 先尝试128x128二维码嵌入
+                try:
+                    bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
+                    bwm1.read_img(tmp_in)
+                    bwm1.read_wm(qr_path)
+                    bwm1.embed(tmp_out)
+                except Exception as e:
+                    # 如果失败，尝试64x64尺寸
+                    if os.path.exists(qr_path):
+                        os.remove(qr_path)
+                    qr_path = self.generate_qr_watermark(64)
+                    if not qr_path:
+                        messagebox.showerror("错误", f"二维码生成失败: {str(e)}\n请尝试使用更小的水印尺寸")
+                        return
+                    
+                    try:
+                        bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
+                        bwm1.read_img(tmp_in)
+                        bwm1.read_wm(qr_path)
+                        bwm1.embed(tmp_out)
+                    except Exception as e2:
+                        messagebox.showerror("错误", f"水印嵌入失败: {str(e2)}\n请尝试使用更小的水印尺寸")
+                        return
+                
+                # 延迟清理临时文件
+                if temp_img and os.path.exists(temp_img):
+                    os.remove(temp_img)
+                if qr_path and os.path.exists(qr_path):
+                    os.remove(qr_path)
 
                 wm_len = len(bwm1.wm_bit)
                 output_ext = ".jpg" if self.output_format.get() == "JPG" else ext
@@ -313,10 +509,10 @@ class App(TkinterDnD.Tk):
                 self.after(0, self.hide_processing_window)
                 self.after(0, lambda: messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n【请完善保存以下内容！】\n水印长度：{wm_len} 尺寸：{width}x{height}"))
             except Exception as e:
-                self.after(0, lambda: messagebox.showerror("错误", str(e)))
+                self.after(0, lambda e=e: messagebox.showerror("错误", str(e)))
             finally:
                 self.after(0, self.hide_processing_window)
-                for f in [tmp_in, tmp_out]:
+                for f in [tmp_in, tmp_out] if 'tmp_in' in locals() and 'tmp_out' in locals() else []:
                     if os.path.exists(f):
                         try:
                             os.remove(f)
@@ -338,61 +534,152 @@ class App(TkinterDnD.Tk):
     def extract_watermark(self, filepath):
         def worker():
             try:
-                # 显示处理窗口
-                self.after(0, lambda: self.show_processing_window("正在处理图片，请稍候..."))
+                self.after(0, lambda: self.show_processing_window("正在提取水印，请稍候..."))
                 
-                pwd = self.get_pwd()
-                name = os.path.basename(filepath)
-                ext = os.path.splitext(filepath)[1]
-
-                output_dir = self.get_output_dir()
-                tmp_in = os.path.join(output_dir, f"input.png")
-
-                # 读取 ws
-                wm_len = self.get_ws()
-                if wm_len is None:
-                    m = re.search(r"ws(\d+)", name)
-                    if not m:
-                        raise ValueError("文件名中未找到 ws（如 ws256）\n可手动输入或改名")
-                    wm_len = int(m.group(1))
-
-                # 读取原始尺寸
-                target_size = self.get_target_size()
-                if target_size is None:
-                    m = re.search(r"size(\d+)x(\d+)", name)
-                    if not m:
-                        raise ValueError("文件名中未找到 size（如 size800x600）\n可手动输入或改名")
-                    target_size = int(m.group(1)), int(m.group(2))
-
-                # 判断是否需要 resize
+                # 创建临时文件
+                tmp_in = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name
+                tmp_out = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name
+                
+                # 保存图片到临时文件
                 img = Image.open(filepath)
-                if img.size == target_size:
-                    img.save(tmp_in)
-                else:
-                    resized = img.resize(target_size, Image.LANCZOS) #使用LANCZOS算法重新匹配图像
-                    resized.save(tmp_in, format="PNG")
-
-                bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
-                wm_extract = bwm1.extract(tmp_in, wm_shape=wm_len, mode='str')
-                wm_extract = wm_extract.replace("\\n", "\n")
-                # 确保处理窗口关闭
-                self.after(0, self.hide_processing_window)
-                self.after(0, lambda: messagebox.showinfo("提取成功", f"水印内容：\n{wm_extract}"))
-
-                if os.path.exists(tmp_in):
-                    try:
-                        os.remove(tmp_in)
-                    except:
-                        pass
-            except Exception as e:
-                # 确保处理窗口关闭
-                self.after(0, self.hide_processing_window)
-                self.after(0, lambda: messagebox.showerror("错误", str(e)))
+                img.save(tmp_in)
                 
-        # 启动工作线程
-        threading.Thread(target=worker, daemon=True).start()
+                # 尝试128x128尺寸提取
+                pwd = self.get_pwd()
+                bwm1 = WaterMark(password_wm=int(pwd), password_img=int(pwd))
+                
+                # 初始化
+                text = None
+                img_128 = None
+                img_64 = None
+                
+                try:
+                    # 第一次尝试128x128
+                    bwm1.extract(filename=tmp_in, wm_shape=(128, 128), out_wm_name=tmp_out)
+                    img_128 = Image.open(tmp_out)
+                    # 尝试解码二维码
+                    qreader = self.qreader
+                    if img_128.mode != 'RGB':
+                        img_128 = img_128.convert('RGB')
+                    img_array = np.array(img_128)
+                    text = qreader.detect_and_decode(image=img_array)[0]
+                    
+                    # 如果第一次解析失败，尝试增强解析
+                    if not text:
+                        # 1. 尝试调整对比度和亮度
+                        enhancer = ImageEnhance.Contrast(img_128)
+                        img_128 = enhancer.enhance(2.0)
+                        enhancer = ImageEnhance.Brightness(img_128)
+                        img_128 = enhancer.enhance(1.5)
+                        
+                        # 2. 应用中值滤波去噪
+                        img_128 = img_128.filter(ImageFilter.MedianFilter(size=3))
+                        
+                        # 3. 转换为灰度并应用自适应阈值
+                        img_128 = img_128.convert('L')
+                        img_128 = img_128.point(lambda x: 0 if x < 128 else 255, '1')
+                        
+                        # 4. 重新尝试解码
+                        img_array = np.array(img_128.convert('RGB'))
+                        text = qreader.detect_and_decode(image=img_array)[0]
+                except Exception as e:
+                    print(f"128x128提取失败: {e}")
+                    # print("完整错误追踪:")
+                    # traceback.print_exc()
+                    pass
+                
+                # 如果128x128失败，尝试64x64
+                if not text:
+                    print("Entering 64x64 branch")
+                    try:
+                        qreader = self.qreader
+                        print(f'64x64临时文件路径: 输入={tmp_in} 输出={tmp_out}')
+                        # 添加临时文件路径验证
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_out_file:
+                            tmp_out = tmp_out_file.name
+                            print(f'触发With临时文件路径: 输入={tmp_in} 输出={tmp_out}')
+                        
+                        # 在extract调用前添加参数检查
+                        if not all([tmp_in, tmp_out]):
+                            raise ValueError(f"文件路径参数异常 tmp_in:{tmp_in} tmp_out:{tmp_out}")
+                        
+                        bwm1.extract(filename=tmp_in, wm_shape=(64, 64), out_wm_name=tmp_out)
+                        img_64 = Image.open(tmp_out)
+                        
+                        if img_64.mode != 'RGB':
+                            img_64 = img_64.convert('RGB')
+                        img_array = np.array(img_64)
+                        text = qreader.detect_and_decode(image=img_array)[0]
+                        print(text)
+                        print("Has try 64x64")
+                        # 如果第一次解析失败，尝试增强解析
+                        if not text:
+                            print("No Text at try1")
+                            # 1. 尝试调整对比度和亮度
+                            enhancer = ImageEnhance.Contrast(img_64)
+                            img_64 = enhancer.enhance(2.0)
+                            enhancer = ImageEnhance.Brightness(img_64)
+                            img_64 = enhancer.enhance(1.5)
+                            # 2. 应用中值滤波去噪
+                            img_64 = img_64.filter(ImageFilter.MedianFilter(size=3))
+                            
+                            # 3. 转换为灰度并应用自适应阈值
+                            img_64 = img_64.convert('L')
+                            img_64 = img_64.point(lambda x: 0 if x < 128 else 255, '1')
+                            
+                            # 4. 重新尝试解码
+                            img_array = np.array(img_64.convert('RGB'))
+                            text = qreader.detect_and_decode(image=img_array)[0]
+                    except Exception as e:
+                        import traceback
+                        print(f"64x64提取失败: {e}")
+                        # print("完整错误追踪:")
+                        # traceback.print_exc()
+                        pass
+                
+                # 如果两次都失败，显示图片和错误信息
+                if not text:
+                    images = []
+                    if img_128:
+                        images.append(("128x128", img_128))
+                    if img_64:
+                        images.append(("64x64", img_64))
+                    
+                    if images:
+                        # 将图片对象转换为可序列化的元组格式
+                        image_tuples = [(size, np.array(img)) for size, img in images]
+                        # 处理多余的tmp_out文件
+                        if os.path.exists(tmp_out):
+                            os.unlink(tmp_out)
+                        self.show_qr_code(None, "",None, *image_tuples)
+                    else:
+                        messagebox.showerror("错误", "水印提取失败")
+                    return
+                
+                # 显示提取的二维码水印
+                self.after(0, lambda: self.show_qr_code(tmp_out, text, True))
+            except Exception as e:
+                self.after(0, lambda e=e: messagebox.showerror("错误", f"提取水印失败: {str(e)}"))
+            finally:
+                # 清理临时文件
+                for f in [tmp_in]:
+                    if os.path.exists(f):
+                        os.unlink(f)
+                self.after(0, self.hide_processing_window)
+                
+        threading.Thread(target=worker).start()
+
+# 抑制QReader的特定编码解析警告
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning, message='Double decoding failed')
 
 if __name__ == "__main__":
+    try:
+        from hooks.torch_fixes import apply_torch_numpy_fix, disable_problematic_features
+        disable_problematic_features()
+        apply_torch_numpy_fix()
+    except ImportError:
+        print("Torch修复模块未找到，继续运行...")
     app = App()
     try:
         app.mainloop()

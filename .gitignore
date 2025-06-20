@@ -1,3 +1,5 @@
 /build
 /dist
 /hooks/__pycache__
+/debug/__pycache__
+DEV.ENV
