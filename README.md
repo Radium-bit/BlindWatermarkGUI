@@ -57,7 +57,7 @@ pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader n
 
 ```python
 # Site-Packages目录示例
-SITE_PACKAGE_PATH='C:\Python310\Lib\site-packages\qrdet\.model'
+SITE_PACKAGE_PATH='C:\Python310\Lib\site-packages'
 ```
 
 4. 复制程序目录下的`BUILD.ENV_SAMPLE`文件并重命名为`BUILD.ENV`
