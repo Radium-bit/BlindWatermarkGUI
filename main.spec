@@ -3,12 +3,39 @@ from PyInstaller.utils.hooks import collect_data_files
 import os
 import json
 import lzma
+import subprocess
 from dotenv import load_dotenv
 
 load_dotenv('DEV.ENV')
 load_dotenv('BUILD.ENV', override=True)
+
 env_path = os.getenv('SITE_PACKAGE_PATH')
 VERSION = os.getenv('VERSION')
+
+# 控制选项：是否在版本号后添加 Git hash
+INCLUDE_GIT_HASH = os.getenv('INCLUDE_GIT_HASH', 'false').lower() == 'true'
+
+def get_git_hash():
+    """获取当前 Git commit 的短hash"""
+    try:
+        # 获取短 hash (7位)
+        result = subprocess.run(['git', 'rev-parse', '--short=7', 'HEAD'], 
+                            capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # 如果 git 命令失败或找不到，返回默认值
+        print("警告: 无法获取 Git hash，使用默认值")
+        return "unknown"
+
+# 构建最终版本号
+if INCLUDE_GIT_HASH:
+    git_hash = get_git_hash()
+    FINAL_VERSION = f"{VERSION}_build.{git_hash}"
+    print(f"Build Version: {FINAL_VERSION}")
+else:
+    FINAL_VERSION = VERSION
+    print(f"Build Version: {FINAL_VERSION}")
+
 qrdet_model_path = os.path.join(env_path,'qrdet','.model')
 
 # 定义 block_cipher
@@ -44,7 +71,6 @@ REQUIRED_IMPORTS = [
     'watermark.embed',
     'watermark.extract',
 ]
-
 
 a = Analysis(
     ['main.py'],
@@ -87,7 +113,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name=f'BlindWatermarkGUI_v{VERSION}',
+    name=f'BlindWatermarkGUI_v{FINAL_VERSION}',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -128,7 +128,7 @@ class App(TkinterDnD.Tk):
         # 输出目录
         frm_out = tk.Frame(self, bg="white")
         frm_out.pack(pady=5, fill="x", padx=20)
-        tk.Label(frm_out, text="输出目录（默认系统临时目录）：", bg="white").pack(side="left")
+        tk.Label(frm_out, text="临时目录（默认系统目录）：", bg="white").pack(side="left")
         self.entry_out = tk.Entry(frm_out)
         self.entry_out.insert(0, tempfile.gettempdir())
         self.entry_out.pack(side="left", fill="x", expand=True)
