@@ -48,7 +48,7 @@ class App(TkinterDnD.Tk):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self._load_build_env()
         self.title(f"BlindWatermarkGUI v{self.version}")
-        self.geometry("580x560")
+        self.geometry("580x760")
         self.configure(bg="white")
         self.qr_window = None
 
@@ -89,7 +89,7 @@ class App(TkinterDnD.Tk):
             format_frame, 
             text="启用兼容模式",
             variable=self.compatibility_mode,
-            command=self.show_compatibility_info
+            command=self.toggle_compatibility_mode
         )
         self.compatibility_check.pack(side='top', padx=5, pady=5)
         
@@ -109,19 +109,19 @@ class App(TkinterDnD.Tk):
         self.text_wm.pack(fill="both", expand=True)
         self.load_config()
 
-        # 水印长度输入
-        frm_len = tk.Frame(self, bg="white")
-        frm_len.pack(pady=5, fill="x", padx=20)
-        tk.Label(frm_len, text="提取水印长度（可空）：", bg="white").pack(side="left")
-        self.entry_ws = tk.Entry(frm_len)
+        # 水印长度输入 - 兼容模式专用，默认隐藏
+        self.frm_len = tk.Frame(self, bg="white")
+        # 注意：这里不调用 pack()，默认隐藏
+        tk.Label(self.frm_len, text="提取水印长度（可空）：", bg="white").pack(side="left")
+        self.entry_ws = tk.Entry(self.frm_len)
         self.entry_ws.insert(0, "")
         self.entry_ws.pack(side="left", fill="x", expand=True)
 
-        # 原图尺寸输入
-        frm_size = tk.Frame(self, bg="white")
-        frm_size.pack(pady=5, fill="x", padx=20)
-        tk.Label(frm_size, text="原图尺寸（如1920x1080，可空）：", bg="white").pack(side="left")
-        self.entry_size = tk.Entry(frm_size)
+        # 原图尺寸输入 - 兼容模式专用，默认隐藏
+        self.frm_size = tk.Frame(self, bg="white")
+        # 注意：这里不调用 pack()，默认隐藏
+        tk.Label(self.frm_size, text="原图尺寸（如1920x1080，可空）：", bg="white").pack(side="left")
+        self.entry_size = tk.Entry(self.frm_size)
         self.entry_size.insert(0, "")
         self.entry_size.pack(side="left", fill="x", expand=True)
 
@@ -152,10 +152,23 @@ class App(TkinterDnD.Tk):
         
         # 项目地址链接
         self.project_address_label = tk.Label(self, text="项目地址:", font=("Arial", 10))
-        self.project_address_label.pack(pady=(10,0))
+        self.project_address_label.pack(pady=(1,0))
         self.project_link = tk.Label(self, text="Radium-bit/BlindWatermarkGUI", fg="blue", cursor="hand2", font=("Arial", 10))
         self.project_link.pack(pady=(0,5))
         self.project_link.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/Radium-bit/BlindWatermarkGUI"))
+
+    def toggle_compatibility_mode(self):
+        """切换兼容模式时显示/隐藏相关输入框"""
+        if self.compatibility_mode.get():
+            # 启用兼容模式 - 显示输入框
+            self.frm_len.pack(pady=5, fill="x", padx=20, before=self.entry_out.master)
+            self.frm_size.pack(pady=5, fill="x", padx=20, before=self.entry_out.master)
+            # 显示兼容模式信息
+            self.show_compatibility_info()
+        else:
+            # 禁用兼容模式 - 隐藏输入框
+            self.frm_len.pack_forget()
+            self.frm_size.pack_forget()
 
     def _load_build_env(self):
         """加载APP.ENV配置文件并设置版本号"""
@@ -430,13 +443,12 @@ class App(TkinterDnD.Tk):
                 messagebox.showwarning("提示", "增强模式会轻微降低图像质量！\n但可提高抗干扰能力，\n请确保您的图片不会丢失重要信息。")
 
     def show_compatibility_info(self):
+        """显示兼容模式信息（不触发输入框显示/隐藏）"""
         if self.compatibility_mode.get():
             messagebox.showinfo("兼容模式", "已启用v0.1.3兼容模式\n仅嵌入文本水印（抗干扰差！）\n且不能解析新版水印\n仅作为兼容选项，不再推荐使用")
             if self.enhanced_mode.get():
                 messagebox.showwarning("注意", "v0.1.3兼容模式下\n不可使用增强处理")
                 self.enhanced_mode.set(False)
-        else:
-            pass
 
 
 # 抑制QReader的特定编码解析警告
