@@ -56,7 +56,7 @@ class WatermarkEmbedder:
         def worker():
             try:
                 # 显示处理窗口
-                self.app.after(0, lambda: self.app.show_processing_window("正在处理图片，请稍候..."))
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在处理图片，请稍候..."))
                 output_dir = self.app.get_output_dir()
                 os.makedirs(output_dir, exist_ok=True)
                 # 生成二维码水印
@@ -66,7 +66,7 @@ class WatermarkEmbedder:
                     return
                 # 确保二维码文件存在
                 if not os.path.exists(qr_path):
-                    self.app.after(0, lambda: messagebox.showerror("错误", "二维码水印生成失败"))
+                    self.app.root.after(0, lambda: messagebox.showerror("错误", "二维码水印生成失败"))
                     return
                 
                 name, ext = os.path.splitext(os.path.basename(filepath))
@@ -79,16 +79,16 @@ class WatermarkEmbedder:
                     if filepath.lower().endswith(('.jpg', '.jpeg')):
                         if image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0':
                             # 启动长时间操作提示
-                            self.app.after(0, lambda: self.app.show_processing_window("正在转换色彩空间，请稍候..."))
+                            self.app.root.after(0, lambda: self.app.show_processing_window("正在转换色彩空间，请稍候..."))
                             
                             start_time = time.time()
                             image = image.convert('RGB')
                             
                             # 如果转换时间超过1秒，保持提示窗口
                             if time.time() - start_time > 1:
-                                self.app.after(0, lambda: messagebox.showinfo("色彩空间转换", "为确保兼容性，已将图片色彩空间转换为sRGB 4:2:0"))
+                                self.app.root.after(0, lambda: messagebox.showinfo("色彩空间转换", "为确保兼容性，已将图片色彩空间转换为sRGB 4:2:0"))
                             else:
-                                self.app.after(0, self.app.hide_processing_window)
+                                self.app.root.after(0, self.app.hide_processing_window)
                             
                 # 定义所有临时文件变量
                 tmp_in = os.path.join(output_dir, f"input{ext}")
@@ -189,12 +189,12 @@ class WatermarkEmbedder:
                 else:
                     shutil.copy2(tmp_out, dst_img)
                 # 确保处理窗口关闭
-                self.app.after(0, self.app.hide_processing_window)
-                self.app.after(0, lambda: messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n水印长度：{wm_len} 尺寸：{width}x{height}"))
+                self.app.root.after(0, self.app.hide_processing_window)
+                self.app.root.after(0, lambda: messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n水印长度：{wm_len} 尺寸：{width}x{height}"))
             except Exception as e:
-                self.app.after(0, lambda e=e: messagebox.showerror("错误", str(e)))
+                self.app.root.after(0, lambda e=e: messagebox.showerror("错误", str(e)))
             finally:
-                self.app.after(0, self.app.hide_processing_window)
+                self.app.root.after(0, self.app.hide_processing_window)
                 for f in [tmp_in, tmp_out] if 'tmp_in' in locals() and 'tmp_out' in locals() else []:
                     if os.path.exists(f):
                         try:
@@ -217,7 +217,7 @@ class WatermarkEmbedder:
         def worker():
             try:
                 # 显示处理窗口
-                self.app.after(0, lambda: self.app.show_processing_window("正在处理图片，请稍候..."))
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在处理图片，请稍候..."))
                 output_dir = self.app.get_output_dir()
                 os.makedirs(output_dir, exist_ok=True)
 
@@ -231,16 +231,16 @@ class WatermarkEmbedder:
                     if filepath.lower().endswith(('.jpg', '.jpeg')):
                         if image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0':
                             # 启动长时间操作提示
-                            self.app.after(0, lambda: self.app.show_processing_window("正在转换色彩空间，请稍候..."))
+                            self.app.root.after(0, lambda: self.app.show_processing_window("正在转换色彩空间，请稍候..."))
                             
                             start_time = time.time()
                             image = image.convert('RGB')
                             
                             # 如果转换时间超过1秒，保持提示窗口
                             if time.time() - start_time > 1:
-                                self.app.after(0, lambda: messagebox.showinfo("色彩空间转换", "为确保兼容性，已将图片色彩空间转换为sRGB 4:2:0"))
+                                self.app.root.after(0, lambda: messagebox.showinfo("色彩空间转换", "为确保兼容性，已将图片色彩空间转换为sRGB 4:2:0"))
                             else:
-                                self.app.after(0, self.app.hide_processing_window)
+                                self.app.root.after(0, self.app.hide_processing_window)
                             
                 # 定义所有临时文件变量
                 tmp_in = os.path.join(output_dir, f"input{ext}")
@@ -286,12 +286,12 @@ class WatermarkEmbedder:
                 else:
                     shutil.copy2(tmp_out, dst_img)
                 # 确保处理窗口关闭
-                self.app.after(0, self.app.hide_processing_window)
-                self.app.after(0, lambda: messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n【旧版水印！请完善保存以下内容！】\n水印长度：{wm_len} 尺寸：{width}x{height}"))
+                self.app.root.after(0, self.app.hide_processing_window)
+                self.app.root.after(0, lambda: messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n【旧版水印！请完善保存以下内容！】\n水印长度：{wm_len} 尺寸：{width}x{height}"))
             except Exception as e:
-                self.app.after(0, lambda: messagebox.showerror("错误", str(e)))
+                self.app.root.after(0, lambda: messagebox.showerror("错误", str(e)))
             finally:
-                self.app.after(0, self.app.hide_processing_window)
+                self.app.root.after(0, self.app.hide_processing_window)
                 for f in [tmp_in, tmp_out]:
                     if os.path.exists(f):
                         try:

@@ -19,7 +19,7 @@ class WatermarkExtractor:
     def extract_watermark(self, filepath):
         def worker():
             try:
-                self.app.after(0, lambda: self.app.show_processing_window("正在提取水印，请稍候..."))
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在提取水印，请稍候..."))
                 
                 # 创建临时文件
                 tmp_in = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name
@@ -148,15 +148,15 @@ class WatermarkExtractor:
                     return
                 
                 # 显示提取的二维码水印
-                self.app.after(0, lambda: self.app.show_qr_code(tmp_out, text, True))
+                self.app.root.after(0, lambda: self.app.show_qr_code(tmp_out, text, True))
             except Exception as e:
-                self.app.after(0, lambda e=e: messagebox.showerror("错误", f"提取水印失败: {str(e)}"))
+                self.app.root.after(0, lambda e=e: messagebox.showerror("错误", f"提取水印失败: {str(e)}"))
             finally:
                 # 清理临时文件
                 for f in [tmp_in]:
                     if os.path.exists(f):
                         os.unlink(f)
-                self.app.after(0, self.app.hide_processing_window)
+                self.app.root.after(0, self.app.hide_processing_window)
                 
         threading.Thread(target=worker).start()
 
@@ -165,7 +165,7 @@ class WatermarkExtractor:
         def worker():
             try:
                 # 显示处理窗口
-                self.app.after(0, lambda: self.app.show_processing_window("正在处理图片，请稍候..."))
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在处理图片，请稍候..."))
                 
                 pwd = self.app.get_pwd()
                 name = os.path.basename(filepath)
@@ -203,8 +203,8 @@ class WatermarkExtractor:
                 wm_extract = bwm1.extract(tmp_in, wm_shape=wm_len, mode='str')
                 wm_extract = wm_extract.replace("\\n", "\n")
                 # 确保处理窗口关闭
-                self.app.after(0, self.app.hide_processing_window)
-                self.app.after(0, lambda: messagebox.showinfo("提取成功", f"水印内容：\n{wm_extract}"))
+                self.app.root.after(0, self.app.hide_processing_window)
+                self.app.root.after(0, lambda: messagebox.showinfo("提取成功", f"水印内容：\n{wm_extract}"))
 
                 if os.path.exists(tmp_in):
                     try:
@@ -213,8 +213,8 @@ class WatermarkExtractor:
                         pass
             except Exception as e:
                 # 确保处理窗口关闭
-                self.app.after(0, lambda: messagebox.showerror("错误", str(e)))
-                self.app.after(0, self.app.hide_processing_window)
+                self.app.root.after(0, lambda: messagebox.showerror("错误", str(e)))
+                self.app.root.after(0, self.app.hide_processing_window)
                 
         # 启动工作线程
         threading.Thread(target=worker).start()
