@@ -40,46 +40,58 @@ echo.
 echo ========================================
 echo 步骤2: 创建DEV.ENV配置文件
 echo ========================================
-if exist "DEV.ENV_SAMPLE" (
-    copy "DEV.ENV_SAMPLE" "DEV.ENV" >nul
-    echo DEV.ENV文件已创建
-    echo 请手动编辑DEV.ENV文件，设置正确的SITE_PACKAGE_PATH路径
+if exist "DEV.ENV" (
+    echo DEV.ENV文件已存在，跳过创建步骤
 ) else (
-    echo 警告: 未找到DEV.ENV_SAMPLE文件，跳过此步骤
+    if exist "DEV.ENV_SAMPLE" (
+        copy "DEV.ENV_SAMPLE" "DEV.ENV" >nul
+        echo DEV.ENV文件已创建
+        echo 请手动编辑DEV.ENV文件，设置正确的SITE_PACKAGE_PATH路径
+    ) else (
+        echo 警告: 未找到DEV.ENV_SAMPLE文件，跳过此步骤
+    )
 )
 
 echo.
 echo ========================================
 echo 步骤3: 创建BUILD.ENV配置文件
 echo ========================================
-if exist "BUILD.ENV_SAMPLE" (
-    copy "BUILD.ENV_SAMPLE" "BUILD.ENV" >nul
-    echo BUILD.ENV文件已创建
-    
-    :: 修改BUILD.ENV文件内容
-    echo 正在配置BUILD.ENV...
-    (
-        echo ## 【注意】 此文件会覆盖DEV.ENV的同名内容，敬请留意
-        echo.
-        echo #构建时输出文件名是否包括 Git Hash 
-        echo INCLUDE_GIT_HASH=false
-        echo # 程序构建版本号
-        echo BUILD_VERSION=' unknow'
-    ) > "BUILD.ENV"
-    echo BUILD.ENV配置已完成
+if exist "BUILD.ENV" (
+    echo BUILD.ENV文件已存在，跳过创建步骤
 ) else (
-    echo 警告: 未找到BUILD.ENV_SAMPLE文件，跳过此步骤
+    if exist "BUILD.ENV_SAMPLE" (
+        copy "BUILD.ENV_SAMPLE" "BUILD.ENV" >nul
+        echo BUILD.ENV文件已创建
+        
+        :: 修改BUILD.ENV文件内容
+        echo 正在配置BUILD.ENV...
+        (
+            echo ## 【注意】 此文件会覆盖DEV.ENV的同名内容，敬请留意
+            echo.
+            echo #构建时输出文件名是否包括 Git Hash 
+            echo INCLUDE_GIT_HASH=false
+            echo # 程序构建版本号
+            echo BUILD_VERSION=' unknow'
+        ) > "BUILD.ENV"
+        echo BUILD.ENV配置已完成
+    ) else (
+        echo 警告: 未找到BUILD.ENV_SAMPLE文件，跳过此步骤
+    )
 )
 
 echo.
 echo ========================================
 echo 步骤4: 创建APP.ENV配置文件
 echo ========================================
-if exist "APP.ENV_SAMPLE" (
-    copy "APP.ENV_SAMPLE" "APP.ENV" >nul
-    echo APP.ENV文件已创建
+if exist "APP.ENV" (
+    echo APP.ENV文件已存在，跳过创建步骤
 ) else (
-    echo 警告: 未找到APP.ENV_SAMPLE文件，跳过此步骤
+    if exist "APP.ENV_SAMPLE" (
+        copy "APP.ENV_SAMPLE" "APP.ENV" >nul
+        echo APP.ENV文件已创建
+    ) else (
+        echo 警告: 未找到APP.ENV_SAMPLE文件，跳过此步骤
+    )
 )
 
 echo.

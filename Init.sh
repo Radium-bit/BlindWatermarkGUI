@@ -57,25 +57,32 @@ echo
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}步骤2: 创建DEV.ENV配置文件${NC}"
 echo -e "${BLUE}========================================${NC}"
-if [ -f "DEV.ENV_SAMPLE" ]; then
-    cp "DEV.ENV_SAMPLE" "DEV.ENV"
-    echo -e "${GREEN}DEV.ENV文件已创建${NC}"
-    echo -e "${YELLOW}请手动编辑DEV.ENV文件，设置正确的SITE_PACKAGE_PATH路径${NC}"
+if [ -f "DEV.ENV" ]; then
+    echo -e "${YELLOW}DEV.ENV文件已存在，跳过创建步骤${NC}"
 else
-    echo -e "${YELLOW}警告: 未找到DEV.ENV_SAMPLE文件，跳过此步骤${NC}"
+    if [ -f "DEV.ENV_SAMPLE" ]; then
+        cp "DEV.ENV_SAMPLE" "DEV.ENV"
+        echo -e "${GREEN}DEV.ENV文件已创建${NC}"
+        echo -e "${YELLOW}请手动编辑DEV.ENV文件，设置正确的SITE_PACKAGE_PATH路径${NC}"
+    else
+        echo -e "${YELLOW}警告: 未找到DEV.ENV_SAMPLE文件，跳过此步骤${NC}"
+    fi
 fi
 
 echo
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}步骤3: 创建BUILD.ENV配置文件${NC}"
 echo -e "${BLUE}========================================${NC}"
-if [ -f "BUILD.ENV_SAMPLE" ]; then
-    cp "BUILD.ENV_SAMPLE" "BUILD.ENV"
-    echo -e "${GREEN}BUILD.ENV文件已创建${NC}"
-    
-    # 修改BUILD.ENV文件内容
-    echo -e "${YELLOW}正在配置BUILD.ENV...${NC}"
-    cat > "BUILD.ENV" << 'EOF'
+if [ -f "BUILD.ENV" ]; then
+    echo -e "${YELLOW}BUILD.ENV文件已存在，跳过创建步骤${NC}"
+else
+    if [ -f "BUILD.ENV_SAMPLE" ]; then
+        cp "BUILD.ENV_SAMPLE" "BUILD.ENV"
+        echo -e "${GREEN}BUILD.ENV文件已创建${NC}"
+        
+        # 修改BUILD.ENV文件内容
+        echo -e "${YELLOW}正在配置BUILD.ENV...${NC}"
+        cat > "BUILD.ENV" << 'EOF'
 ## 【注意】 此文件会覆盖DEV.ENV的同名内容，敬请留意
 
 #构建时输出文件名是否包括 Git Hash 
@@ -83,20 +90,25 @@ INCLUDE_GIT_HASH=false
 # 程序构建版本号
 BUILD_VERSION=' unknow'
 EOF
-    echo -e "${GREEN}BUILD.ENV配置已完成${NC}"
-else
-    echo -e "${YELLOW}警告: 未找到BUILD.ENV_SAMPLE文件，跳过此步骤${NC}"
+        echo -e "${GREEN}BUILD.ENV配置已完成${NC}"
+    else
+        echo -e "${YELLOW}警告: 未找到BUILD.ENV_SAMPLE文件，跳过此步骤${NC}"
+    fi
 fi
 
 echo
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}步骤4: 创建APP.ENV配置文件${NC}"
 echo -e "${BLUE}========================================${NC}"
-if [ -f "APP.ENV_SAMPLE" ]; then
-    cp "APP.ENV_SAMPLE" "APP.ENV"
-    echo -e "${GREEN}APP.ENV文件已创建${NC}"
+if [ -f "APP.ENV" ]; then
+    echo -e "${YELLOW}APP.ENV文件已存在，跳过创建步骤${NC}"
 else
-    echo -e "${YELLOW}警告: 未找到APP.ENV_SAMPLE文件，跳过此步骤${NC}"
+    if [ -f "APP.ENV_SAMPLE" ]; then
+        cp "APP.ENV_SAMPLE" "APP.ENV"
+        echo -e "${GREEN}APP.ENV文件已创建${NC}"
+    else
+        echo -e "${YELLOW}警告: 未找到APP.ENV_SAMPLE文件，跳过此步骤${NC}"
+    fi
 fi
 
 echo
