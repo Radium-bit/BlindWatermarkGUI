@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ========================================
-echo 项目初始化脚本 - Windows Ver.
+echo 项目初始化脚本 - Windows Ver
 echo ========================================
 
 :: 检查Python版本
@@ -62,18 +62,6 @@ if exist "BUILD.ENV" (
     if exist "BUILD.ENV_SAMPLE" (
         copy "BUILD.ENV_SAMPLE" "BUILD.ENV" >nul
         echo BUILD.ENV文件已创建
-        
-        :: 修改BUILD.ENV文件内容
-        echo 正在配置BUILD.ENV...
-        (
-            echo ## 【注意】 此文件会覆盖DEV.ENV的同名内容，敬请留意
-            echo.
-            echo #构建时输出文件名是否包括 Git Hash 
-            echo INCLUDE_GIT_HASH=false
-            echo # 程序构建版本号
-            echo BUILD_VERSION=' unknow'
-        ) > "BUILD.ENV"
-        echo BUILD.ENV配置已完成
     ) else (
         echo 警告: 未找到BUILD.ENV_SAMPLE文件，跳过此步骤
     )
@@ -100,7 +88,7 @@ echo 初始化完成！
 echo ========================================
 echo 提醒事项:
 echo 1. 请检查并编辑DEV.ENV文件中的SITE_PACKAGE_PATH路径
-echo 2. 如需要，可以修改BUILD.ENV中的版本号
+echo 2. 如需要，可以修改BUILD.ENV中的配置
 echo 3. 检查APP.ENV配置是否符合需求
 echo.
 echo 打包运行前准备工作已完成！

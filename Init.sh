@@ -8,7 +8,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}项目初始化脚本 - Linux Ver. ${NC}"
+echo -e "${BLUE}项目初始化脚本 - Linux Ver ${NC}"
 echo -e "${BLUE}========================================${NC}"
 
 # 检查Python版本
@@ -79,18 +79,6 @@ else
     if [ -f "BUILD.ENV_SAMPLE" ]; then
         cp "BUILD.ENV_SAMPLE" "BUILD.ENV"
         echo -e "${GREEN}BUILD.ENV文件已创建${NC}"
-        
-        # 修改BUILD.ENV文件内容
-        echo -e "${YELLOW}正在配置BUILD.ENV...${NC}"
-        cat > "BUILD.ENV" << 'EOF'
-## 【注意】 此文件会覆盖DEV.ENV的同名内容，敬请留意
-
-#构建时输出文件名是否包括 Git Hash 
-INCLUDE_GIT_HASH=false
-# 程序构建版本号
-BUILD_VERSION=' unknow'
-EOF
-        echo -e "${GREEN}BUILD.ENV配置已完成${NC}"
     else
         echo -e "${YELLOW}警告: 未找到BUILD.ENV_SAMPLE文件，跳过此步骤${NC}"
     fi
@@ -117,7 +105,7 @@ echo -e "${GREEN}初始化完成！${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo -e "${YELLOW}提醒事项:${NC}"
 echo -e "${YELLOW}1. 请检查并编辑DEV.ENV文件中的SITE_PACKAGE_PATH路径${NC}"
-echo -e "${YELLOW}2. 如需要，可以修改BUILD.ENV中的版本号${NC}"
+echo -e "${YELLOW}2. 如需要，可以修改BUILD.ENV中的配置${NC}"
 echo -e "${YELLOW}3. 检查APP.ENV配置是否符合需求${NC}"
 echo
 echo -e "${GREEN}打包运行前准备工作已完成！${NC}"
