@@ -190,7 +190,7 @@ class WatermarkEmbedder:
                     shutil.copy2(tmp_out, dst_img)
                 # 确保处理窗口关闭
                 self.app.after(0, self.app.hide_processing_window)
-                self.app.after(0, lambda: messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n【请完善保存以下内容！】\n水印长度：{wm_len} 尺寸：{width}x{height}"))
+                self.app.after(0, lambda: messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n水印长度：{wm_len} 尺寸：{width}x{height}"))
             except Exception as e:
                 self.app.after(0, lambda e=e: messagebox.showerror("错误", str(e)))
             finally:
@@ -287,7 +287,7 @@ class WatermarkEmbedder:
                     shutil.copy2(tmp_out, dst_img)
                 # 确保处理窗口关闭
                 self.app.after(0, self.app.hide_processing_window)
-                self.app.after(0, lambda: messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n【请完善保存以下内容！】\n水印长度：{wm_len} 尺寸：{width}x{height}"))
+                self.app.after(0, lambda: messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n【旧版水印！请完善保存以下内容！】\n水印长度：{wm_len} 尺寸：{width}x{height}"))
             except Exception as e:
                 self.app.after(0, lambda: messagebox.showerror("错误", str(e)))
             finally:
