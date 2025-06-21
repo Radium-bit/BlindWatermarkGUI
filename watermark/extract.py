@@ -51,6 +51,8 @@ class WatermarkExtractor:
                     text = qreader.detect_and_decode(image=img_array)[0]
                     
                     # 如果第一次解析失败，尝试增强解析
+                    # 先备份原图
+                    # img_128_backup = img_128.copy()
                     if not text:
                         # 1. 尝试调整对比度和亮度
                         enhancer = ImageEnhance.Contrast(img_128)
@@ -58,14 +60,7 @@ class WatermarkExtractor:
                         enhancer = ImageEnhance.Brightness(img_128)
                         img_128 = enhancer.enhance(1.5)
                         
-                        # 2. 应用中值滤波去噪
-                        img_128 = img_128.filter(ImageFilter.MedianFilter(size=3))
-                        
-                        # 3. 转换为灰度并应用自适应阈值
-                        img_128 = img_128.convert('L')
-                        img_128 = img_128.point(lambda x: 0 if x < 128 else 255, '1')
-                        
-                        # 4. 重新尝试解码
+                        # 2. 重新尝试解码
                         img_array = np.array(img_128.convert('RGB'))
                         text = qreader.detect_and_decode(image=img_array)[0]
                 except Exception as e:
@@ -100,6 +95,8 @@ class WatermarkExtractor:
                         print(text)
                         print("Has try 64x64")
                         # 如果第一次解析失败，尝试增强解析
+                        # 先备份原图
+                        # img_64_backup = img_64.copy()
                         if not text:
                             print("No Text at try1")
                             # 1. 尝试调整对比度和亮度
@@ -107,14 +104,8 @@ class WatermarkExtractor:
                             img_64 = enhancer.enhance(2.0)
                             enhancer = ImageEnhance.Brightness(img_64)
                             img_64 = enhancer.enhance(1.5)
-                            # 2. 应用中值滤波去噪
-                            img_64 = img_64.filter(ImageFilter.MedianFilter(size=3))
                             
-                            # 3. 转换为灰度并应用自适应阈值
-                            img_64 = img_64.convert('L')
-                            img_64 = img_64.point(lambda x: 0 if x < 128 else 255, '1')
-                            
-                            # 4. 重新尝试解码
+                            # 2. 重新尝试解码
                             img_array = np.array(img_64.convert('RGB'))
                             text = qreader.detect_and_decode(image=img_array)[0]
                     except Exception as e:
@@ -132,8 +123,12 @@ class WatermarkExtractor:
                 if not text:
                     images = []
                     if img_128:
+                        # img_128 = img_128_backup.copy()
+                        # img_128_backup.close()
                         images.append(("128x128", img_128))
                     if img_64:
+                        # img_64 = img_64_backup.copy()
+                        # img_64_backup.close()
                         images.append(("64x64", img_64))
                     
                     if images:
