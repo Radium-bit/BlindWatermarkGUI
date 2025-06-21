@@ -34,7 +34,15 @@ REQUIRED_IMPORTS = [
     'torchvision.io',
     'torch._dynamo',
     'torch.fx',
-    'scipy._lib.array_api_compat.common._fft'
+    'scipy._lib.array_api_compat.common._fft',
+    'scipy._lib.array_api_compat.common',
+    'scipy._lib.array_api_compat.numpy.fft',
+    'quadrilateral_fitter',
+    'quadrilateral_fitter.quadrilateral_fitter',
+    # 添加 watermark 模块
+    'watermark',
+    'watermark.embed',
+    'watermark.extract',
 ]
 
 
@@ -52,7 +60,10 @@ a = Analysis(
         (os.path.join(hooks_dir, 'torch_numpy_fix.py'), '.'),
         (os.path.join(env_path, 'scipy/_lib/array_api_compat/numpy'), 'scipy/_lib/array_api_compat/numpy'),
         ('hidden_imports.json', '.'),
-        *collect_data_files('ultralytics')
+        *collect_data_files('ultralytics'),
+        ## 拆分后的模块
+        # watermark 模块
+        ('watermark', 'watermark'),
     ],
     hiddenimports = REQUIRED_IMPORTS + [
     imp.strip('"') for imp in json.load(open('hidden_imports.json'))
