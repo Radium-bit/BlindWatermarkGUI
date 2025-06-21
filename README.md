@@ -38,6 +38,12 @@
 
  **Python版本**: ≥3.7, <3.12
 
+0. 直接运行初始化脚本`Init.bat`或`Init.sh`
+
+1. 检查并编辑`DEV.ENV`和`BUILD.ENV`以符合您的开发和打包环境
+
+---
+
 1. 安装依赖
 
 ```bash
@@ -52,6 +58,21 @@ pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader n
 # Site-Packages目录示例
 SITE_PACKAGE_PATH='C:\Python310\Lib\site-packages\qrdet\.model'
 ```
+
+4. 复制程序目录下的`BUILD.ENV_SAMPLE`文件并重命名为`BUILD.ENV`
+
+5. 编辑`BUILD.ENV`的内容以符合您当前的编译结果，如修改版本号
+
+```python
+## 【注意】 此文件会覆盖DEV.ENV的同名内容，敬请留意
+
+#构建时输出文件名是否包括 Git Hash 
+INCLUDE_GIT_HASH=true
+# 程序构建版本号
+BUILD_VERSION='0.2.2'
+```
+
+6. 复制程序目录下的`APP.ENV_SAMPLE`文件并重命名为`APP.ENV`
 
 至此打包运行前准备工作已完成
 

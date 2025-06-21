@@ -3,3 +3,5 @@
 __pycache__/
 *.py[cod]
 DEV.ENV
+BUILD.ENV
+APP.ENV

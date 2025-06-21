@@ -158,16 +158,16 @@ class App(TkinterDnD.Tk):
         self.project_link.bind("<Button-1>", lambda e: webbrowser.open("https://github.com/Radium-bit/BlindWatermarkGUI"))
 
     def _load_build_env(self):
-        """加载BUILD.ENV配置文件并设置版本号"""
+        """加载APP.ENV配置文件并设置版本号"""
         try:
             # 获取基础路径
             if getattr(sys, 'frozen', False):
                 # 打包环境
                 base_path = sys._MEIPASS
-                build_env_path = os.path.join(base_path, 'BUILD.ENV')
+                build_env_path = os.path.join(base_path, 'APP.ENV')
             else:
                 # 开发环境
-                build_env_path = 'BUILD.ENV'
+                build_env_path = 'APP.ENV'
             # 检查文件是否存在
             if os.path.exists(build_env_path):
                 load_dotenv(build_env_path)
@@ -175,13 +175,13 @@ class App(TkinterDnD.Tk):
                 if version:
                     self.version = version
                 else:
-                    print("警告：BUILD.ENV中未找到VERSION配置")
+                    print("警告：APP.ENV中未找到VERSION配置")
                     self.version = " Unknown"  # 默认版本
             else:
-                print(f"警告：未找到BUILD.ENV文件，路径：{build_env_path}")
+                print(f"警告：未找到APP.ENV文件，路径：{build_env_path}")
                 self.version = " Unknown"  # 默认版本
         except Exception as e:
-            print(f"加载BUILD.ENV失败: {e}")
+            print(f"加载APP.ENV失败: {e}")
             self.version = " Unknown"  # 默认版本
 
     def on_drop(self, ev):

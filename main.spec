@@ -8,15 +8,16 @@ from dotenv import load_dotenv
 
 load_dotenv('DEV.ENV')
 load_dotenv('BUILD.ENV', override=True)
+load_dotenv('APP.ENV')
 
 env_path = os.getenv('SITE_PACKAGE_PATH')
-VERSION = os.getenv('VERSION')
+BUILD_VERSION = os.getenv('BUILD_VERSION')
 
 # 控制选项：是否在版本号后添加 Git hash
 INCLUDE_GIT_HASH = os.getenv('INCLUDE_GIT_HASH', 'false').lower() == 'true'
 
 def get_git_hash():
-    """获取当前 Git commit 的短hash"""
+    """获取当前 Git commit 的短 hash"""
     try:
         # 获取短 hash (7位)
         result = subprocess.run(['git', 'rev-parse', '--short=7', 'HEAD'], 
@@ -27,14 +28,56 @@ def get_git_hash():
         print("警告: 无法获取 Git hash，使用默认值")
         return "unknown"
 
+def update_ver_env(version):
+    """更新 APP.ENV 文件中的版本号"""
+    try:
+        # 读取现有的 APP.ENV 内容
+        ver_env_content = ""
+        if os.path.exists('APP.ENV'):
+            with open('APP.ENV', 'r', encoding='utf-8') as f:
+                ver_env_content = f.read()
+        
+        # 更新或添加 VERSION 字段
+        lines = ver_env_content.split('\n')
+        version_updated = False
+        
+        for i, line in enumerate(lines):
+            if line.strip().startswith('VERSION='):
+                lines[i] = f"VERSION='{version}'"
+                version_updated = True
+                break
+        
+        # 如果没有找到 VERSION 字段，添加它
+        if not version_updated:
+            if lines and lines[-1].strip():  # 如果最后一行不为空，添加新行
+                lines.append('')
+            lines.append(f"VERSION='{version}'")
+        
+        # 写回文件
+        with open('APP.ENV', 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
+        
+        print(f"已更新 APP.ENV 中的版本号为: {version}")
+        
+    except Exception as e:
+        print(f"更新 APP.ENV 失败: {e}")
+
 # 构建最终版本号
 if INCLUDE_GIT_HASH:
     git_hash = get_git_hash()
-    FINAL_VERSION = f"{VERSION}_build.{git_hash}"
-    print(f"Build Version: {FINAL_VERSION}")
+    FINAL_VERSION = f"{BUILD_VERSION}.build.{git_hash}"  # 用于 APP.ENV
+    FILENAME_VERSION = f"{BUILD_VERSION}_build.{git_hash}"  # 用于文件名
+    print(f"构建版本: {FINAL_VERSION}")
+    
+    # 更新 APP.ENV 文件
+    update_ver_env(FINAL_VERSION)
 else:
-    FINAL_VERSION = VERSION
-    print(f"Build Version: {FINAL_VERSION}")
+    FINAL_VERSION = BUILD_VERSION
+    FILENAME_VERSION = BUILD_VERSION
+    print(f"构建版本: {FINAL_VERSION}")
+    
+    # 更新 APP.ENV 文件
+    update_ver_env(FINAL_VERSION)
 
 qrdet_model_path = os.path.join(env_path,'qrdet','.model')
 
@@ -80,7 +123,7 @@ a = Analysis(
         # qr模型
         (qrdet_model_path, 'qrdet/.model'),
         # 构建环境
-        ('BUILD.ENV', '.'),
+        ('APP.ENV', '.'),
         # 包含修复文件
         (os.path.join(hooks_dir, 'torch_fixes.py'), '.'),
         (os.path.join(hooks_dir, 'torch_numpy_fix.py'), '.'),
@@ -113,7 +156,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name=f'BlindWatermarkGUI_v{FINAL_VERSION}',
+    name=f'BlindWatermarkGUI_v{FILENAME_VERSION}',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
