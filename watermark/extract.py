@@ -27,6 +27,13 @@ class WatermarkExtractor:
                 
                 # 保存图片到临时文件
                 img = Image.open(filepath)
+                # 如果目标尺寸不为None，则调整图片大小，常用于提取尺寸已被更改的图像
+                target_size = self.app.get_target_size()
+                if target_size is not None:
+                    if img.size != target_size:
+                        print("Enter Resize Brench")
+                        img = img.resize(target_size, Image.LANCZOS)
+                # 保存图像临时文件
                 img.save(tmp_in)
                 
                 # 尝试128x128尺寸提取
@@ -52,7 +59,7 @@ class WatermarkExtractor:
                     
                     # 如果第一次解析失败，尝试增强解析
                     # 先备份原图
-                    # img_128_backup = img_128.copy()
+                    if self.app.show_orignal_extract_picture.get(): img_128_backup = img_128.copy()
                     if not text:
                         # 1. 尝试调整对比度和亮度
                         enhancer = ImageEnhance.Contrast(img_128)
@@ -96,7 +103,7 @@ class WatermarkExtractor:
                         print("Has try 64x64")
                         # 如果第一次解析失败，尝试增强解析
                         # 先备份原图
-                        # img_64_backup = img_64.copy()
+                        if self.app.show_orignal_extract_picture.get(): img_64_backup = img_64.copy()
                         if not text:
                             print("No Text at try1")
                             # 1. 尝试调整对比度和亮度
@@ -123,12 +130,14 @@ class WatermarkExtractor:
                 if not text:
                     images = []
                     if img_128:
-                        # img_128 = img_128_backup.copy()
-                        # img_128_backup.close()
+                        if self.app.show_orignal_extract_picture.get():
+                            img_128 = img_128_backup.copy()
+                            img_128_backup.close()
                         images.append(("128x128", img_128))
                     if img_64:
-                        # img_64 = img_64_backup.copy()
-                        # img_64_backup.close()
+                        if self.app.show_orignal_extract_picture.get():
+                            img_64 = img_64_backup.copy()
+                            img_64_backup.close()
                         images.append(("64x64", img_64))
                     
                     if images:

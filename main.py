@@ -352,40 +352,65 @@ def create_app_class():
             self.mode = tk.StringVar(value="embed")
 
             # 模式选择
-            frm_mode = tk.Frame(self.root, bg="white")
-            frm_mode.pack(pady=5)
+            horizontal_frame = tk.Frame(self.root, bg="white")
+            horizontal_frame.pack(fill="x", padx=20)
+            # 左侧容器：包含标题和模式选择
+            left_container = tk.Frame(horizontal_frame, bg="white")
+            left_container.pack(side="left", anchor="sw")
+
+            # 标题
+            title_frame = tk.Frame(left_container, bg="white")
+            title_frame.pack(anchor="w")
+            tk.Label(title_frame, text="BlindWatermarkGUI", bg="white", font=("Comic Sans MS", 20, "italic")).pack(side="left")
+            frm_mode = tk.Frame(left_container, bg="white")
+            frm_mode.pack(side="left", anchor="sw", pady=0)
             tk.Label(frm_mode, text="选择模式：", bg="white").pack(side="left")
             tk.Radiobutton(frm_mode, text="嵌入水印", variable=self.mode, value="embed", bg="white").pack(side="left")
-            tk.Radiobutton(frm_mode, text="提取水印", variable=self.mode, value="extract", bg="white").pack(side="left")
-
-            # 输出格式选择
-            self.output_format = tk.StringVar(value="PNG")
-            format_frame = tk.Frame(self.root, bg="white")
-            format_frame.pack(pady=5, fill="x", padx=20)
-            tk.Label(format_frame, text="输出格式:", bg="white").pack(side="left")
-            tk.Radiobutton(format_frame, text="PNG", variable=self.output_format, value="PNG", bg="white").pack(side="left", padx=5)
-            tk.Radiobutton(format_frame, text="JPG", variable=self.output_format, value="JPG", bg="white").pack(side="left", padx=5)
+            tk.Radiobutton(frm_mode, text="提取水印", variable=self.mode, value="extract", bg="white").pack(side="left",padx=5)
             
+            placeholder_frame = tk.Frame(horizontal_frame, bg="white")  # 透明占位
+            placeholder_frame.pack(side="right", anchor="ne", pady=30)
+            format_frame = tk.Frame(self.root, bg="white")
             # 增强模式选项
             from tkinter import BooleanVar, Checkbutton
+            options_frame_up = tk.Frame(horizontal_frame, bg="white")
+            options_frame_up.pack(side="right", anchor="se", pady=(20,0))
+            options_frame_down = tk.Frame(format_frame, bg="white")
+            options_frame_down.pack(side="right", anchor="ne", pady=(0,2))
             self.enhanced_mode = BooleanVar(value=False)
             self.enhanced_check = Checkbutton(
-                format_frame, 
-                text="增强抗干扰模式",
+                options_frame_up, 
+                text="增强水印模式",
                 variable=self.enhanced_mode,
                 command=self.show_enhanced_warning
             )
-            self.enhanced_check.pack(side='top', padx=5, pady=5)
-            
+            self.enhanced_check.pack(anchor='e',pady=(0,2))
+
             # 兼容性模式选项
             self.compatibility_mode = BooleanVar(value=False)
             self.compatibility_check = Checkbutton(
-                format_frame, 
+                options_frame_up, 
                 text="启用兼容模式",
                 variable=self.compatibility_mode,
                 command=self.toggle_compatibility_mode
             )
-            self.compatibility_check.pack(side='top', padx=5, pady=5)
+            self.compatibility_check.pack(anchor='e')
+
+            # 原图显示选项
+            self.show_orignal_extract_picture = BooleanVar(value=False)
+            self.show_orignal_extract_picture_check = Checkbutton(
+                options_frame_down, 
+                text="提取显示原图",
+                variable=self.show_orignal_extract_picture,
+            )
+            self.show_orignal_extract_picture_check.pack(anchor='e')
+
+            # 输出格式选择（单独一行）
+            self.output_format = tk.StringVar(value="PNG")
+            format_frame.pack(pady=2, fill="x", anchor="nw", padx=20)
+            tk.Label(format_frame, text="输出格式:", bg="white").pack(side="left")
+            tk.Radiobutton(format_frame, text="PNG", variable=self.output_format, value="PNG", bg="white").pack(side="left", padx=5)
+            tk.Radiobutton(format_frame, text="JPG", variable=self.output_format, value="JPG", bg="white").pack(side="left", padx=5)
             
             # 密码输入
             frm_pwd = tk.Frame(self.root, bg="white")
@@ -410,8 +435,9 @@ def create_app_class():
             self.entry_ws.insert(0, "")
             self.entry_ws.pack(side="left", fill="x", expand=True)
 
-            # 原图尺寸输入 - 兼容模式专用，默认隐藏
+            # 原图尺寸输入
             self.frm_size = tk.Frame(self.root, bg="white")
+            self.frm_size.pack(pady=5, fill="x", padx=20)
             tk.Label(self.frm_size, text="原图尺寸（如1920x1080，可空）：", bg="white").pack(side="left")
             self.entry_size = tk.Entry(self.frm_size)
             self.entry_size.insert(0, "")
@@ -478,13 +504,11 @@ def create_app_class():
             if self.compatibility_mode.get():
                 # 启用兼容模式 - 显示输入框
                 self.frm_len.pack(pady=5, fill="x", padx=20, before=self.entry_out.master)
-                self.frm_size.pack(pady=5, fill="x", padx=20, before=self.entry_out.master)
                 # 显示兼容模式信息
                 self.show_compatibility_info()
             else:
                 # 禁用兼容模式 - 隐藏输入框
                 self.frm_len.pack_forget()
-                self.frm_size.pack(pady=5, fill="x", padx=20, before=self.entry_out.master)
 
         def _load_build_env(self):
             """加载APP.ENV配置文件并设置版本号"""
