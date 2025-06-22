@@ -42,7 +42,7 @@
 
 ## 📦 安装依赖/编译准备
 
- **Python版本**: ≥3.7, <3.12
+ **Python版本**: ≥3.7, ≤3.10
 
 0. 直接运行初始化脚本`Init.bat`或`Init.sh`
 
@@ -86,12 +86,24 @@ BUILD_VERSION='0.2.2'
 
 ## 🛠️ 打包 Windows 可执行文件（.exe）
 
-推荐使用 [PyInstaller](https://www.pyinstaller.org/) 创建单文件 `.exe`
+使用 [PyInstaller](https://www.pyinstaller.org/) 创建单文件 `.exe`
 
-### 1. 确保安装依赖后在目录执行以下命令
+### 1. 检查`DEV.ENV`和`BUILD.ENV`确保打包参数正确
+
+### 2. 确保安装依赖后在目录执行以下命令
 
 ```bash
 pyinstaller --clean main.spec
+```
+
+### 3. 使用 Nuitka 编译（*！尚未测试！*）
+
+1. 先运行`tkinterdnd2_version_fix.py`
+
+2. 运行以下脚本开始编译
+
+```bash
+python nuitka_build.py
 ```
 
 ---

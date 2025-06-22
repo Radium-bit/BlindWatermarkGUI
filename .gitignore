@@ -5,3 +5,8 @@ __pycache__/
 DEV.ENV
 BUILD.ENV
 APP.ENV
+
+# Nuitka Build and Caches
+main.build/
+main.dist/
+main.onefile-build/
