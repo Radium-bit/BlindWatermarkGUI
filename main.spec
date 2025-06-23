@@ -1,287 +1,59 @@
 # -*- mode: python ; coding: utf-8 -*-
+import tempfile
 from PyInstaller.utils.hooks import collect_data_files
 import os
+import re
 import json
 import lzma
+import uuid
 import subprocess
+import shutil
+import py7zr
+import glob
 from dotenv import load_dotenv
-import re
 
-# ========================================
-# 环境配置加载
-# ========================================
-
-# 加载环境配置文件（不加载BUILD.ENV，避免解析错误）
 load_dotenv('DEV.ENV')
+load_dotenv('BUILD.ENV', override=True)
 load_dotenv('APP.ENV')
 
-# 从环境变量获取基础配置
 env_path = os.getenv('SITE_PACKAGE_PATH')
+BUILD_VERSION = os.getenv('BUILD_VERSION')
+COMPRESS_LEVEL = os.getenv('COMPRESS_LEVEL')
+OPTIMIZE = os.getenv('OPTIMIZE')
+PROGRAM_GUID = os.getenv('PROGRAM_GUID')
+ENABLE_CONSOLE = os.getenv('ENABLE_CONSOLE_DEBUG', 'false').lower() == 'true'
 
-# ========================================
-# BUILD.ENV 配置解析（不使用python-dotenv）
-# ========================================
+# 控制选项：是否在版本号后添加 Git hash
+INCLUDE_GIT_HASH = os.getenv('INCLUDE_GIT_HASH', 'false').lower() == 'true'
 
-def parse_build_config():
-    """直接解析BUILD.ENV文件，避免python-dotenv的解析问题"""
-    # 默认配置
-    config = {
-        'include_git_hash': True,
-        'build_version': '1.0.0',
-        'enable_console_debug': False,
-        'enable_optimize': True,
-        'enable_compress': True,
-        'compress_format': 'lzma',
-        'compress_level': 9,
-        'one_file_mode': True,
-        'required_imports': [],
-        'datas': [],
-        'hooks': ['hooks'],
-        'runtime_hooks': [],
-        'exclude_imports': []
-    }
-    
-    if not os.path.exists('BUILD.ENV'):
-        print("BUILD.ENV文件不存在，使用默认配置")
-        return config
-    
-    try:
-        with open('BUILD.ENV', 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # 解析简单的键值对配置
-        lines = content.split('\n')
-        for line in lines:
-            line = line.strip()
-            
-            # 跳过注释、空行和复杂配置行
-            if (not line or line.startswith('#') or 
-                line.startswith(('REQUIRED_IMPORTS', 'DATAS', 'HOOKS', 'RUNTIME_HOOKS', 'EXCLUDE_IMPORTS'))):
-                continue
-            
-            # 只处理简单的键值对
-            if '=' in line and not any(char in line for char in ['[', ']', '(', ')']):
-                try:
-                    key, value = line.split('=', 1)
-                    key = key.strip()
-                    value = value.strip()
-                    
-                    # 处理行内注释
-                    if '#' in value:
-                        value = value.split('#')[0].strip()
-                    
-                    # 移除引号
-                    value = value.strip("'\"")
-                    
-                    if key == 'INCLUDE_GIT_HASH':
-                        config['include_git_hash'] = value.lower() == 'true'
-                    elif key == 'BUILD_VERSION':
-                        config['build_version'] = value
-                    elif key == 'ENABLE_CONSOLE_DEBUG':
-                        config['enable_console_debug'] = value.lower() == 'true'
-                    elif key == 'ENABLE_OPTIMIZE':
-                        config['enable_optimize'] = value.lower() == 'true'
-                    elif key == 'ENABLE_COMPRESS':
-                        config['enable_compress'] = value.lower() == 'true'
-                    elif key == 'COMPRESS_FORMAT':
-                        config['compress_format'] = value
-                    elif key == 'COMPRESS_LEVEL':
-                        config['compress_level'] = int(value)
-                    elif key == 'ONE_FILE_MODE':
-                        config['one_file_mode'] = value.lower() == 'true'
-                except Exception as e:
-                    print(f"解析配置行时出错: {line} - {e}")
-                    continue
-        
-        # 解析复杂配置
-        config['required_imports'] = parse_python_list_from_content(content, 'REQUIRED_IMPORTS')
-        config['datas'] = parse_python_list_from_content(content, 'DATAS')  # 注意这里使用大写 DATAS
-        config['hooks'] = parse_python_list_from_content(content, 'HOOKS')
-        config['runtime_hooks'] = parse_python_list_from_content(content, 'RUNTIME_HOOKS')
-        config['exclude_imports'] = parse_python_list_from_content(content, 'EXCLUDE_IMPORTS')
-        
-        # 调试信息
-        print(f"🔍 解析结果:")
-        print(f"   - datas配置: {config['datas']}")
-        if 'DATAS=[' in content or 'DATAS =' in content:  # 检查大写 DATAS
-            print(f"   - 找到DATAS配置段")
-        else:
-            print(f"   - 未找到DATAS配置段")
-        
-        print("✅ 成功解析BUILD.ENV配置")
-        
-    except Exception as e:
-        print(f"⚠️ 解析BUILD.ENV时出错，使用默认配置: {e}")
-    
-    return config
+# 控制选项：是否额外打包Protable模式
+INCLUDE_PROTABLE = os.getenv('INCLUDE_PROTABLE', 'false').lower() == 'true'
 
-def parse_python_list_from_content(content, var_name):
-    """从内容中解析Python列表"""
-    try:
-        # 尝试两种模式：带空格和不带空格
-        start_patterns = [
-            f'{var_name} = [',
-            f'{var_name}=['
-        ]
-        
-        start_pos = -1
-        for pattern in start_patterns:
-            pos = content.find(pattern)
-            if pos != -1:
-                start_pos = pos
-                start_pattern = pattern
-                break
-        
-        if start_pos == -1:
-            return []
-        
-        # 找到列表的开始位置
-        list_start = start_pos + len(start_pattern) - 1  # -1 是为了包含 '['
-        
-        # 找到匹配的右括号
-        bracket_count = 0
-        pos = list_start
-        list_end = -1
-        
-        while pos < len(content):
-            char = content[pos]
-            if char == '[':
-                bracket_count += 1
-            elif char == ']':
-                bracket_count -= 1
-                if bracket_count == 0:
-                    list_end = pos + 1
-                    break
-            pos += 1
-        
-        if list_end == -1:
-            print(f"警告: 未找到{var_name}的结束括号")
-            return []
-        
-        # 提取列表内容
-        list_content = content[list_start:list_end]
-        
-        # 手动解析列表项
-        return parse_list_items(list_content)
-        
-    except Exception as e:
-        print(f"解析{var_name}时出错: {e}")
-        return []
-
-def parse_list_items(list_content):
-    """解析列表项内容"""
-    items = []
-    
-    # 移除外层括号
-    content = list_content.strip()
-    if content.startswith('['):
-        content = content[1:]
-    if content.endswith(']'):
-        content = content[:-1]
-    
-    # 分割项目（按行分割）
-    lines = content.split('\n')
-    
-    for line in lines:
-        line = line.strip()
-        
-        # 跳过注释和空行
-        if not line or line.startswith('#'):
-            continue
-        
-        # 移除末尾的逗号
-        if line.endswith(','):
-            line = line[:-1].strip()
-        
-        # 处理行内注释 - 找到注释位置但要小心引号内的#
-        comment_pos = -1
-        in_quotes = False
-        quote_char = None
-        
-        for i, char in enumerate(line):
-            if char in ['"', "'"] and (i == 0 or line[i-1] != '\\'):
-                if not in_quotes:
-                    in_quotes = True
-                    quote_char = char
-                elif char == quote_char:
-                    in_quotes = False
-                    quote_char = None
-            elif char == '#' and not in_quotes:
-                comment_pos = i
-                break
-        
-        if comment_pos != -1:
-            line = line[:comment_pos].strip()
-            if line.endswith(','):
-                line = line[:-1].strip()
-        
-        # 处理COLLECT()函数调用
-        if 'COLLECT(' in line:
-            items.append(line)
-            continue
-        
-        # 处理包含=>的数据映射
-        if '=>' in line:
-            # 先移除外层引号（如果有的话）
-            line = line.strip("'\"")
-            items.append(line)
-            continue
-        
-        # 处理普通字符串项
-        if line.startswith("'") and line.endswith("'"):
-            items.append(line[1:-1])
-        elif line.startswith('"') and line.endswith('"'):
-            items.append(line[1:-1])
-        elif line:
-            # 移除引号
-            items.append(line.strip("'\""))
-    
-    return items
-
-def resolve_env_path_expression(expression, env_path):
-    """解析包含DEV_ENV.SITE_PACKAGE_PATH的表达式"""
-    if not env_path:
-        return expression
-    
-    # 处理字符串拼接语法: DEV_ENV.SITE_PACKAGE_PATH+'path'
-    if 'DEV_ENV.SITE_PACKAGE_PATH+' in expression:
-        # 提取拼接的部分
-        match = re.search(r"DEV_ENV\.SITE_PACKAGE_PATH\+(['\"])([^'\"]+)\1", expression)
-        if match:
-            additional_path = match.group(2)
-            # 规范化路径
-            full_path = os.path.join(env_path, additional_path)
-            return os.path.normpath(full_path)
-    
-    # 处理直接替换
-    if 'DEV_ENV.SITE_PACKAGE_PATH' in expression:
-        result = expression.replace('DEV_ENV.SITE_PACKAGE_PATH', env_path)
-        return os.path.normpath(result)
-    
-    return expression
-
-# ========================================
-# 版本管理
-# ========================================
+# 控制选项：是否额外打包安装程序模式
+INCLUDE_MSI = os.getenv('INCLUDE_INSTALLER', 'false').lower() == 'true'
 
 def get_git_hash():
     """获取当前 Git commit 的短 hash"""
     try:
+        # 获取短 hash (7位)
         result = subprocess.run(['git', 'rev-parse', '--short=7', 'HEAD'], 
                             capture_output=True, text=True, check=True)
         return result.stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
-        print("警告: 无法获取 Git hash，使用默认值")
+        # 如果 git 命令失败或找不到，返回默认值
+        print(f"🔧 获取Git hash失败，使用默认值: {result.stderr if 'result' in locals() else 'Git未安装或不在PATH中'}")
         return "unknown"
 
 def update_ver_env(version):
     """更新 APP.ENV 文件中的版本号"""
     try:
+        # 读取现有的 APP.ENV 内容
         ver_env_content = ""
         if os.path.exists('APP.ENV'):
             with open('APP.ENV', 'r', encoding='utf-8') as f:
                 ver_env_content = f.read()
         
+        # 更新或添加 VERSION 字段
         lines = ver_env_content.split('\n')
         version_updated = False
         
@@ -291,277 +63,590 @@ def update_ver_env(version):
                 version_updated = True
                 break
         
+        # 如果没有找到 VERSION 字段，添加它
         if not version_updated:
-            if lines and lines[-1].strip():
+            if lines and lines[-1].strip():  # 如果最后一行不为空，添加新行
                 lines.append('')
             lines.append(f"VERSION='{version}'")
         
+        # 写回文件
         with open('APP.ENV', 'w', encoding='utf-8') as f:
             f.write('\n'.join(lines))
         
-        print(f"已更新 APP.ENV 中的版本号为: {version}")
+        print(f"✅ 已更新APP.ENV中的版本号为: {version}")
         
     except Exception as e:
-        print(f"更新 APP.ENV 失败: {e}")
+        print(f"❌ 更新APP.ENV失败: {e}")
 
-# ========================================
-# 数据文件处理（修复版）
-# ========================================
+def create_7z_archive(source_dir, output_file):
+    """创建7z压缩包"""
+    try:
+        print(f"📦 正在创建Portable压缩包...")
+        with py7zr.SevenZipFile(output_file, 'w') as archive:
+            for root, dirs, files in os.walk(source_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, source_dir)
+                    archive.write(file_path, arcname)
+        print(f"✅ Portable压缩包创建成功: {output_file}")
+        return True
+    except Exception as e:
+        print(f"❌ 创建Portable压缩包失败: {e}")
+        return False
 
-def expand_data_paths(datas_config):
-    """展开数据文件路径（修复版）"""
-    expanded_datas = []
-    collected_packages = []  # 记录collect_data_files收集的包
-    
-    for item in datas_config:
-        if isinstance(item, str):
-            print(f"🔍 处理配置项: {repr(item)}")
+def create_NSIS_installer(dist_dir, main_program_name, program_guid, installer_file, version):
+    """
+    使用 NSIS 创建 Windows 安装程序
+   
+    Args:
+        dist_dir: 要打包的目录路径
+        main_program_name: 主程序名称（在dist_dir内）
+        program_guid: 程序的GUID，用于卸载识别
+        installer_file: 输出的安装程序文件路径
+        version: 程序版本号
+   
+    Returns:
+        bool: 创建成功返回True，失败返回False
+    """
+    try:
+        # 检查输入参数
+        if not os.path.exists(dist_dir):
+            print(f"❌ 错误：源目录不存在: {dist_dir}")
+            return False
+       
+        main_program_path = os.path.join(dist_dir, main_program_name)
+        if not os.path.exists(main_program_path):
+            print(f"❌ 错误：主程序不存在: {main_program_path}")
+            return False
+       
+        # 检查 NSIS 是否安装
+        nsis_path = find_nsis()
+        if not nsis_path:
+            print("❌ 错误：未找到 NSIS，请确保已安装 NSIS")
+            print("   下载地址: https://nsis.sourceforge.io/Download")
+            return False
+       
+        print(f"📦 开始创建 NSIS 安装程序...")
+        print(f"   源目录: {dist_dir}")
+        print(f"   主程序: {main_program_name}")
+        print(f"   输出: {installer_file}")
+       
+        # 确保输出目录存在
+        os.makedirs(os.path.dirname(installer_file), exist_ok=True)
+       
+        # 创建临时的 NSIS 脚本
+        script_content = generate_nsis_script(
+            dist_dir, main_program_name, program_guid, installer_file, version
+        )
+       
+# 写入到 dist/build.nsi 中
+        script_path = os.path.join("build.nsi")
+        with open(script_path, 'w', encoding='utf-8-sig') as f:  # 使用 UTF-8 BOM 编码
+            f.write(script_content)
+            script_path = f.name
+       
+        try:
+            # 编译 NSIS 脚本
+            cmd = [nsis_path, script_path]
             
-            # 处理COLLECT()格式
-            if item.startswith("COLLECT("):
-                match = re.search(r"COLLECT\((['\"]?)([^'\"]+)\1\)", item)
-                if match:
-                    package_name = match.group(2)
-                    print(f"📦 使用collect_data_files收集: {package_name}")
-                    try:
-                        collected = collect_data_files(package_name)
-                        if collected:
-                            expanded_datas.extend(collected)
-                            collected_packages.append(package_name)
-                            print(f"✅ 成功收集 {package_name} 的 {len(collected)} 个数据文件")
-                        else:
-                            print(f"⚠️ {package_name} 没有发现数据文件")
-                    except Exception as e:
-                        print(f"❌ 收集包数据失败 {package_name}: {e}")
-                continue
-        
-        # 处理字符串格式 "src=>dst"
-        if isinstance(item, str) and '=>' in item:
-            src, dst = item.split('=>', 1)
-            src = src.strip()
-            dst = dst.strip()
+            # 设置环境变量以支持UTF-8
+            env = os.environ.copy()
+            env['NSIS_UNICODE'] = '1'
             
-            # 移除目标路径的引号和注释
-            dst = dst.strip("'\"")
-            # 处理行内注释
-            if '#' in dst:
-                dst = dst.split('#')[0].strip()
-            
-            print(f"🔍 解析路径映射: {repr(src)} => {repr(dst)}")
-            
-            # 处理源路径中的DEV_ENV.SITE_PACKAGE_PATH引用
-            original_src = src
-            src = resolve_env_path_expression(src, env_path)
-            src = src.strip("'\"")  # 添加这一行，移除源路径的引号
-            print(f"🔍 路径解析: {repr(original_src)} -> {repr(src)}")
-            
-            # 检查源文件/目录是否存在
-            if os.path.exists(src):
-                expanded_datas.append((src, dst))
-                print(f"✅ 添加数据文件: {src} => {dst}")
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',  # 更改为 replace 以避免编码错误
+                env=env
+            )
+           
+            if result.returncode == 0:
+                if os.path.exists(installer_file):
+                    file_size = os.path.getsize(installer_file) / (1024 * 1024)
+                    print(f"✅ NSIS 安装程序创建成功!")
+                    print(f"   文件: {installer_file}")
+                    print(f"   大小: {file_size:.2f} MB")
+                    return True
+                else:
+                    print(f"❌ 编译成功但未找到输出文件: {installer_file}")
+                    return False
             else:
-                print(f"⚠️ 数据文件不存在: {src}")
-        
-        # 处理元组格式
-        elif isinstance(item, (tuple, list)) and len(item) == 2:
-            src, dst = item
-            if os.path.exists(src):
-                expanded_datas.append((src, dst))
-                print(f"✅ 添加数据文件: {src} => {dst}")
-            else:
-                print(f"⚠️ 数据文件不存在: {src}")
+                print(f"❌ NSIS 编译失败:")
+                print(f"   返回码: {result.returncode}")
+                if result.stdout:
+                    print(f"   输出: {result.stdout}")
+                if result.stderr:
+                    print(f"   错误: {result.stderr}")
+                return False
+               
+        finally:
+            # 清理临时脚本文件
+            try:
+                os.unlink(script_path)
+            except:
+                pass
+               
+    except Exception as e:
+        print(f"❌ 创建 NSIS 安装程序时发生错误: {e}")
+        return False
+
+def generate_nsis_script(dist_dir, main_program_name, program_guid, installer_file, version):
+    """
+    生成NSIS脚本内容，避免编码问题
+    """
+    # 提取程序名称（去掉扩展名和版本信息）
+    program_name = main_program_name.split('_')[0] if '_' in main_program_name else main_program_name.replace('.exe', '')
     
-    return expanded_datas, collected_packages
+    # 使用纯ASCII字符串，避免中文编码问题
+    script_content = f'''
+; NSIS Script for {program_name}
+; Generated automatically
 
-# ========================================
-# 主要配置
-# ========================================
+!define PRODUCT_NAME "{program_name}"
+!define PRODUCT_VERSION "{version}"
+!define PRODUCT_PUBLISHER "Radium-bit"
+!define PRODUCT_WEB_SITE "https://github.com/Radium-bit/BlindWatermarkGUI"
+!define PRODUCT_DIR_REGKEY "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\{main_program_name}"
+!define PRODUCT_UNINST_KEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{program_guid}"
+!define PRODUCT_UNINST_ROOT_KEY "HKLM"
 
-# 解析构建配置（不使用python-dotenv加载BUILD.ENV）
-print("📋 开始解析BUILD.ENV配置...")
-build_config = parse_build_config()
+; Modern UI
+!include "MUI2.nsh"
 
-# 打印解析的配置信息
-print(f"📝 解析的配置:")
-print(f"   - 包含Git Hash: {build_config['include_git_hash']}")
-print(f"   - 构建版本: {build_config['build_version']}")
-print(f"   - 控制台调试: {build_config['enable_console_debug']}")
-print(f"   - 启用优化: {build_config['enable_optimize']}")
-print(f"   - 启用压缩: {build_config['enable_compress']}")
-print(f"   - 压缩格式: {build_config['compress_format']}")
-print(f"   - 压缩级别: {build_config['compress_level']}")
-print(f"   - 单文件模式: {build_config['one_file_mode']}")
-print(f"   - 导入模块数: {len(build_config.get('required_imports', []))}")
-print(f"   - 排除模块数: {len(build_config.get('exclude_imports', []))}")
-print(f"   - 数据文件数: {len(build_config.get('datas', []))}")
+; General
+Name "${{PRODUCT_NAME}} ${{PRODUCT_VERSION}}"
+OutFile "{installer_file}"
+InstallDir "$PROGRAMFILES\\${{PRODUCT_NAME}}"
+InstallDirRegKey HKLM "${{PRODUCT_DIR_REGKEY}}" ""
+ShowInstDetails show
+ShowUnInstDetails show
+
+; Interface Settings
+!define MUI_ABORTWARNING
+
+; Pages
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
+!insertmacro MUI_PAGE_FINISH
+
+; Uninstaller pages
+!insertmacro MUI_UNPAGE_INSTFILES
+
+; Language files
+!insertmacro MUI_LANGUAGE "English"
+
+; Reserve files
+ReserveFile /plugin InstallOptions.dll
+
+; Install section
+Section "MainSection" SEC01
+  SetOutPath "$INSTDIR"
+  SetOverwrite ifnewer
+  
+  ; Install all files from dist directory
+  File /r "{os.path.abspath(dist_dir)}\\*.*"
+  
+  ; Create shortcuts
+  CreateDirectory "$SMPROGRAMS\\${{PRODUCT_NAME}}"
+  CreateShortCut "$SMPROGRAMS\\${{PRODUCT_NAME}}\\${{PRODUCT_NAME}}.lnk" "$INSTDIR\\{main_program_name}"
+  CreateShortCut "$DESKTOP\\${{PRODUCT_NAME}}.lnk" "$INSTDIR\\{main_program_name}"
+  
+  ; Register uninstaller
+  WriteRegStr HKLM "${{PRODUCT_DIR_REGKEY}}" "" "$INSTDIR\\{main_program_name}"
+  WriteRegStr HKLM "${{PRODUCT_UNINST_KEY}}" "DisplayName" "${{PRODUCT_NAME}}"
+  WriteRegStr HKLM "${{PRODUCT_UNINST_KEY}}" "UninstallString" "$INSTDIR\\uninst.exe"
+  WriteRegStr HKLM "${{PRODUCT_UNINST_KEY}}" "DisplayIcon" "$INSTDIR\\{main_program_name}"
+  WriteRegStr HKLM "${{PRODUCT_UNINST_KEY}}" "DisplayVersion" "${{PRODUCT_VERSION}}"
+  WriteRegStr HKLM "${{PRODUCT_UNINST_KEY}}" "URLInfoAbout" "${{PRODUCT_WEB_SITE}}"
+  WriteRegStr HKLM "${{PRODUCT_UNINST_KEY}}" "Publisher" "${{PRODUCT_PUBLISHER}}"
+  WriteUninstaller "$INSTDIR\\uninst.exe"
+SectionEnd
+
+; Uninstaller section
+Section Uninstall
+  ; Remove shortcuts
+  Delete "$SMPROGRAMS\\${{PRODUCT_NAME}}\\${{PRODUCT_NAME}}.lnk"
+  Delete "$DESKTOP\\${{PRODUCT_NAME}}.lnk"
+  RMDir "$SMPROGRAMS\\${{PRODUCT_NAME}}"
+  
+  ; Remove installation directory
+  RMDir /r "$INSTDIR"
+  
+  ; Remove registry keys
+  DeleteRegKey HKLM "${{PRODUCT_UNINST_KEY}}"
+  DeleteRegKey HKLM "${{PRODUCT_DIR_REGKEY}}"
+  
+  SetAutoClose true
+SectionEnd
+'''
+    
+    return script_content
+
+def find_nsis():
+    """
+    查找NSIS安装路径
+    """
+    possible_paths = [
+        "C:\\Program Files (x86)\\NSIS\\makensis.exe",
+        "C:\\Program Files\\NSIS\\makensis.exe",
+        "makensis.exe"  # 如果在PATH中
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    
+    # 尝试在PATH中查找
+    try:
+        result = subprocess.run(['where', 'makensis'], 
+                            capture_output=True, text=True, shell=True)
+        if result.returncode == 0:
+            return result.stdout.strip().split('\n')[0]
+    except:
+        pass
+    
+    return None
+
+# 替代方案：使用纯ASCII的NSIS脚本
+def create_NSIS_installer_ascii(dist_dir, main_program_name, program_guid, installer_file, version):
+    """
+    创建纯ASCII版本的NSIS安装程序，完全避免编码问题
+    """
+    try:
+        # 检查输入参数
+        if not os.path.exists(dist_dir):
+            print(f"Error: Source directory does not exist: {dist_dir}")
+            return False
+       
+        main_program_path = os.path.join(dist_dir, main_program_name)
+        if not os.path.exists(main_program_path):
+            print(f"Error: Main program does not exist: {main_program_path}")
+            return False
+       
+        # 检查 NSIS 是否安装
+        nsis_path = find_nsis()
+        if not nsis_path:
+            print("Error: NSIS not found. Please install NSIS first.")
+            print("Download from: https://nsis.sourceforge.io/Download")
+            return False
+       
+        print(f"Creating NSIS installer...")
+        print(f"Source directory: {dist_dir}")
+        print(f"Main program: {main_program_name}")
+        print(f"Output: {installer_file}")
+       
+        # 确保输出目录存在
+        os.makedirs(os.path.dirname(installer_file), exist_ok=True)
+       
+        # 创建纯ASCII的NSIS脚本
+        script_content = generate_ascii_nsis_script(
+            dist_dir, main_program_name, program_guid, installer_file, version
+        )
+       
+        # 使用Windows-1252编码写入脚本文件
+        script_path = os.path.join("build.nsi")
+        with open(script_path, 'w', encoding='utf-8-sig') as f:  # 使用 UTF-8 BOM 编码
+            f.write(script_content)
+            script_path = f.name
+       
+        try:
+            # 编译 NSIS 脚本
+            cmd = [nsis_path, script_path]
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding='windows-1252',
+                errors='replace'
+            )
+           
+            if result.returncode == 0:
+                if os.path.exists(installer_file):
+                    file_size = os.path.getsize(installer_file) / (1024 * 1024)
+                    print(f"NSIS installer created successfully!")
+                    print(f"File: {installer_file}")
+                    print(f"Size: {file_size:.2f} MB")
+                    return True
+                else:
+                    print(f"Compilation succeeded but output file not found: {installer_file}")
+                    return False
+            else:
+                print(f"NSIS compilation failed:")
+                print(f"Return code: {result.returncode}")
+                if result.stdout:
+                    print(f"Output: {result.stdout}")
+                if result.stderr:
+                    print(f"Error: {result.stderr}")
+                return False
+               
+        finally:
+            # 清理临时脚本文件
+            try:
+                os.unlink(script_path)
+            except:
+                pass
+               
+    except Exception as e:
+        print(f"Error creating NSIS installer: {e}")
+        return False
+
+def generate_ascii_nsis_script(dist_dir, main_program_name, program_guid, installer_file, version):
+    """
+    生成纯ASCII的NSIS脚本内容
+    """
+    program_name = main_program_name.split('_')[0] if '_' in main_program_name else main_program_name.replace('.exe', '')
+    
+    # 转换路径为正斜杠，避免转义问题
+    dist_dir_forward = dist_dir.replace('\\', '/')
+    installer_file_forward = installer_file.replace('\\', '/')
+    
+    script_content = f'''Name "{program_name} {version}"
+OutFile "{installer_file_forward}"
+InstallDir "$PROGRAMFILES\\{program_name}"
+RequestExecutionLevel admin
+
+Page directory
+Page instfiles
+
+Section "Install"
+    SetOutPath $INSTDIR
+    File /r "{dist_dir_forward}\\*.*"
+    
+    CreateDirectory "$SMPROGRAMS\\{program_name}"
+    CreateShortCut "$SMPROGRAMS\\{program_name}\\{program_name}.lnk" "$INSTDIR\\{main_program_name}"
+    CreateShortCut "$DESKTOP\\{program_name}.lnk" "$INSTDIR\\{main_program_name}"
+    
+    WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{program_guid}" \\
+                    "DisplayName" "{program_name}"
+    WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{program_guid}" \\
+                    "UninstallString" "$INSTDIR\\uninstall.exe"
+    WriteUninstaller "$INSTDIR\\uninstall.exe"
+SectionEnd
+
+Section "Uninstall"
+    Delete "$SMPROGRAMS\\{program_name}\\{program_name}.lnk"
+    Delete "$DESKTOP\\{program_name}.lnk"
+    RMDir "$SMPROGRAMS\\{program_name}"
+    RMDir /r "$INSTDIR"
+    DeleteRegKey HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{program_guid}"
+SectionEnd
+'''
+    
+    return script_content
+
+def create_msi_with_legacy_wix(source_dir, output_file, version):
+    raise Exception("不再支持旧版构建。")
 
 # 构建最终版本号
-BUILD_VERSION = build_config['build_version']
-
-if build_config['include_git_hash']:
+if INCLUDE_GIT_HASH:
     git_hash = get_git_hash()
-    FINAL_VERSION = f"{BUILD_VERSION}.build.{git_hash}"
-    FILENAME_VERSION = f"{BUILD_VERSION}_build.{git_hash}"
-    print(f"构建版本: {FINAL_VERSION}")
+    FINAL_VERSION = f"{BUILD_VERSION}.build.{git_hash}"  # 用于 APP.ENV
+    FILENAME_VERSION = f"{BUILD_VERSION}_build.{git_hash}"  # 用于文件名
+    print(f"🏗️  构建版本: {FINAL_VERSION}")
+    
+    # 更新 APP.ENV 文件
     update_ver_env(FINAL_VERSION)
 else:
     FINAL_VERSION = BUILD_VERSION
     FILENAME_VERSION = BUILD_VERSION
-    print(f"构建版本: {FINAL_VERSION}")
+    print(f"🏗️  构建版本: {FINAL_VERSION}")
+    
+    # 更新 APP.ENV 文件
     update_ver_env(FINAL_VERSION)
 
-# QR模型路径
-qrdet_model_path = os.path.join(env_path, 'qrdet', '.model') if env_path else None
+qrdet_model_path = os.path.join(env_path,'qrdet','.model')
 
 # 定义 block_cipher
 block_cipher = None
 
-# 获取 hooks 目录
-hooks_dir = build_config.get('hooks', ['hooks'])
-if isinstance(hooks_dir, list):
-    hooks_dir = hooks_dir[0] if hooks_dir else 'hooks'
+# 获取 hooks 目录的路径
+hooks_dir = 'hooks'
 
-# 构建导入列表
-REQUIRED_IMPORTS = build_config.get('required_imports', [])
-EXCLUDE_IMPORTS = build_config.get('exclude_imports', [])
-print(f"📦 必需导入模块数量: {len(REQUIRED_IMPORTS)}")
-print(f"🚫 排除导入模块数量: {len(EXCLUDE_IMPORTS)}")
-
-# 从hidden_imports.json添加额外导入
-if os.path.exists('hidden_imports.json'):
-    try:
-        with open('hidden_imports.json', 'r') as f:
-            json_imports = json.load(f)
-            additional_imports = [imp.strip('"') for imp in json_imports 
-                                if imp not in REQUIRED_IMPORTS]
-            REQUIRED_IMPORTS.extend(additional_imports)
-            print(f"📦 从hidden_imports.json添加了 {len(additional_imports)} 个额外导入")
-    except Exception as e:
-        print(f"读取hidden_imports.json失败: {e}")
-
-# 构建数据文件列表
-base_datas = []
-
-# 添加基础数据文件
-if qrdet_model_path and os.path.exists(qrdet_model_path):
-    base_datas.append((qrdet_model_path, 'qrdet/.model'))
-    print(f"✅ 添加QR模型: {qrdet_model_path}")
-
-base_datas.extend([
-    ('APP.ENV', '.'),
-    ('hidden_imports.json', '.'),
-])
-
-# 添加hooks文件
-if os.path.exists(hooks_dir):
-    for hook_file in ['torch_fixes.py', 'torch_numpy_fix.py']:
-        hook_path = os.path.join(hooks_dir, hook_file)
-        if os.path.exists(hook_path):
-            base_datas.append((hook_path, '.'))
-            print(f"✅ 添加Hook文件: {hook_path}")
-
-# 添加scipy数据
-if env_path:
-    scipy_path = os.path.join(env_path, 'scipy/_lib/array_api_compat/numpy')
-    if os.path.exists(scipy_path):
-        base_datas.append((scipy_path, 'scipy/_lib/array_api_compat/numpy'))
-        print(f"✅ 添加Scipy兼容数据: {scipy_path}")
-
-# 添加watermark模块
-if os.path.exists('watermark'):
-    base_datas.append(('watermark', 'watermark'))
-    print(f"✅ 添加Watermark模块: watermark")
-
-# 处理BUILD.ENV中的datas配置
-print("📂 开始处理数据文件配置...")
-config_datas, collected_packages = expand_data_paths(build_config.get('datas', []))
-
-# 合并所有数据文件
-all_datas = base_datas + config_datas
-
-print(f"📦 数据文件总数: {len(all_datas)}")
-
-# 创建简洁的显示列表
-display_datas = base_datas.copy()
-for package in collected_packages:
-    display_datas.append(f"*collect_data_files('{package}')")
-
-print(f"📦 数据文件: {display_datas}")
-
-# ========================================
-# PyInstaller 配置
-# ========================================
+# 定义去重列表，可显式导入的部分
+REQUIRED_IMPORTS = [
+    'qreader',
+    'qrcode',
+    'ultralytics',
+    'torch._numpy',
+    'torch._numpy._ufuncs',
+    'torch._numpy._ndarray',
+    'torch._numpy._dtypes',
+    'torch._numpy._funcs',
+    'torch._numpy._util',
+    'torchvision.ops',
+    'torchvision.models',
+    'torchvision.transforms',
+    'torchvision.io',
+    'torch._dynamo',
+    'torch.fx',
+    'scipy._lib.array_api_compat.common._fft',
+    'scipy._lib.array_api_compat.common',
+    'scipy._lib.array_api_compat.numpy.fft',
+    'quadrilateral_fitter',
+    'quadrilateral_fitter.quadrilateral_fitter',
+    # 添加 watermark 模块
+    'watermark',
+    'watermark.embed',
+    'watermark.extract',
+]
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=all_datas,
-    hiddenimports=REQUIRED_IMPORTS,
-    hookspath=[hooks_dir] if os.path.exists(hooks_dir) else [],
+    datas=[
+        # qr模型
+        (qrdet_model_path, 'qrdet/.model'),
+        # 构建环境
+        ('APP.ENV', '.'),
+        # 包含修复文件
+        (os.path.join(hooks_dir, 'torch_fixes.py'), '.'),
+        (os.path.join(hooks_dir, 'torch_numpy_fix.py'), '.'),
+        (os.path.join(env_path, 'scipy/_lib/array_api_compat/numpy'), 'scipy/_lib/array_api_compat/numpy'),
+        ('hidden_imports.json', '.'),
+        *collect_data_files('ultralytics'),
+        ## 拆分后的模块
+        # watermark 模块
+        ('watermark', 'watermark'),
+    ],
+    hiddenimports = REQUIRED_IMPORTS + [
+    imp.strip('"') for imp in json.load(open('hidden_imports.json'))
+    if imp not in REQUIRED_IMPORTS],
+    hookspath=[hooks_dir],
     hooksconfig={},
-    runtime_hooks=[os.path.join(hooks_dir, hook) for hook in build_config.get('runtime_hooks', []) 
-                if os.path.exists(os.path.join(hooks_dir, hook))],
-    excludes=EXCLUDE_IMPORTS,
+    runtime_hooks=[os.path.join(hooks_dir, 'torch_numpy_fix.py')],
+    excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False
 )
 
-# 配置PYZ压缩
-if build_config['enable_compress']:
-    compress_format = build_config['compress_format'].lower()
-    compress_level = build_config['compress_level']
+# pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher, compression=lzma, compression_level=COMPRESS_LEVEL)
+
+# 根据配置决定打包方式
+if INCLUDE_PROTABLE or INCLUDE_MSI:
+    # 需要额外打包onedir模式
+    print("📦 检测到需要额外打包，将同时生成onefile和onedir版本")
     
-    if compress_format == 'lzma':
-        pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher, 
-                compression=lzma, compression_level=compress_level)
-        print(f"🗜️ 使用LZMA压缩，级别: {compress_level}")
-    elif compress_format == 'zip':
-        import zipfile
-        pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher, 
-                compression=zipfile.ZIP_DEFLATED, compression_level=compress_level)
-        print(f"🗜️ 使用ZIP压缩，级别: {compress_level}")
-    else:
-        pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-        print("📦 无压缩")
+    # 先创建onedir版本
+    exe_dir = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name=f'BlindWatermarkGUI_v{FILENAME_VERSION}_d',
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+        optimize=OPTIMIZE
+    )
+    
+    coll = COLLECT(
+        exe_dir,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name=f'BlindWatermarkGUI_v{FILENAME_VERSION}_d'
+    )
+    
+    # 创建onefile版本（原有逻辑）
+    exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.datas,
+        [],
+        name=f'BlindWatermarkGUI_v{FILENAME_VERSION}',
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        runtime_tmpdir=None,
+        console=ENABLE_CONSOLE,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+        onefile=True,
+        optimize=OPTIMIZE
+    )
+    
+    # 后处理：创建7z包和MSI安装包
+    import atexit
+    
+    def post_build():
+        dist_dir = os.path.join('dist', f'BlindWatermarkGUI_v{FILENAME_VERSION}_d')
+        main_program_name = f'BlindWatermarkGUI_v{FILENAME_VERSION}_d.exe'
+        
+        # 记录需要执行的任务
+        portable_success = True
+        msi_success = True
+        
+        if INCLUDE_PROTABLE and os.path.exists(dist_dir):
+            # 创建Portable 7z包
+            portable_7z = f'dist/BlindWatermarkGUI_v{FILENAME_VERSION}_Portable.7z'
+            portable_success = create_7z_archive(dist_dir, portable_7z)
+        
+        if INCLUDE_MSI and os.path.exists(dist_dir):
+            # 创建安装包
+            installer_file = f'dist/BlindWatermarkGUI_v{FILENAME_VERSION}_Installer.exe'
+            # msi_success = create_msi_installer(dist_dir, msi_file, FINAL_VERSION)
+            msi_success = create_NSIS_installer(dist_dir,main_program_name,PROGRAM_GUID, installer_file, FINAL_VERSION)
+        
+        # 只有在所有任务都成功完成后才清理onedir目录
+        if (not INCLUDE_PROTABLE or portable_success) and (not INCLUDE_MSI or msi_success):
+            if os.path.exists(dist_dir):
+                try:
+                    print(f"🧹 正在清理临时目录: {dist_dir}")
+                    shutil.rmtree(dist_dir)
+                    print(f"✅ 临时目录清理完成")
+                except Exception as e:
+                    print(f"⚠️  清理临时目录失败: {e}")
+            
+            print("🎉 所有构建任务完成!")
+        else:
+            print("⚠️  部分构建任务失败，保留临时目录以供调试")
+    
+    atexit.register(post_build)
+    
 else:
-    pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-    print("📦 无压缩")
-
-# 配置EXE
-exe_config = {
-    'name': f'BlindWatermarkGUI_v{FILENAME_VERSION}',
-    'debug': build_config['enable_console_debug'],
-    'bootloader_ignore_signals': False,
-    'strip': False,
-    'upx': False,  # 默认关闭UPX，因为可能导致问题
-    'upx_exclude': [],
-    'runtime_tmpdir': None,
-    'console': build_config['enable_console_debug'],
-    'disable_windowed_traceback': False,
-    'argv_emulation': False,
-    'target_arch': None,
-    'codesign_identity': None,
-    'entitlements_file': None,
-    'onefile': build_config['one_file_mode'],
-    'optimize': 2 if build_config['enable_optimize'] else 0
-}
-
-print(f"🔧 EXE配置:")
-print(f"   - 调试模式: {exe_config['debug']}")
-print(f"   - 控制台: {exe_config['console']}")
-print(f"   - 单文件: {exe_config['onefile']}")
-print(f"   - 优化级别: {exe_config['optimize']}")
-
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
-    **exe_config
-)
-
-print("✅ 程序构建完毕")
+    # 只打包onefile版本（原有逻辑）
+    exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.datas,
+        [],
+        name=f'BlindWatermarkGUI_v{FILENAME_VERSION}',
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        runtime_tmpdir=None,
+        console=ENABLE_CONSOLE,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+        onefile=True,
+        optimize=OPTIMIZE
+    )

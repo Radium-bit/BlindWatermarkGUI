@@ -27,7 +27,7 @@ echo ========================================
 echo 步骤1: 安装Python依赖包
 echo ========================================
 echo 正在安装依赖包...
-pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv noise
+pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv noise py7zr
 
 if %errorlevel% neq 0 (
     echo 错误: 依赖包安装失败

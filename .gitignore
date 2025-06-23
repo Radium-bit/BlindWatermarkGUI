@@ -10,3 +10,6 @@ APP.ENV
 main.build/
 main.dist/
 main.onefile-build/
+build.nsi
+
+.wix

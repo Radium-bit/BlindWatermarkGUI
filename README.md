@@ -30,8 +30,6 @@
    - 请记录使用的水印文本长度 及 原始图片尺寸（宽高）
    - 新版本无需保存水印文本长度，文件名不再是重点
 
-**！这些信息对后续水印提取非常重要 ！**
-
 【WARNING！】
 
 **自v2.0版本开始，由于抗干扰模式更新，新版水印将不再向下兼容**
@@ -40,47 +38,56 @@
 
 ---
 
-## 📦 安装依赖/编译准备
+## 📥 如何下载
 
- **Python版本**: ≥3.7, ≤3.10
+目前程序提供三个版本供选择：
 
-0. 直接运行初始化脚本`Init.bat`或`Init.sh`
+### 1. `_portable` 版本（推荐开发者/懂电脑的用户）
 
-1. 检查并编辑`DEV.ENV`和`BUILD.ENV`以符合您的开发和打包环境
+- 后缀为 `.7z`，解压即可运行  
+- 无需安装，便于携带和自定义配置
+
+### 2. `onefile` 版本（推荐轻度用户）
+
+- 无后缀，双击即可运行  
+- 最简单直接，但首次启动较慢（因需解压到内存）
+
+### 3. `_Installer` 安装版（推荐大多数用户）
+
+- 推荐体验方式，启动快捷，兼容性最好  
+- 安装流程：
+  1. 双击安装程序启动
+  2. 点击 `Next`
+  3. 选择安装路径
+  4. 点击 `Install` 开始安装
 
 ---
 
-1. 安装依赖
+## 📦 安装依赖/编译准备
+
+**Python版本**: ≥3.7, ≤3.10
+
+0. 直接运行初始化脚本 `Init.bat` 或 `Init.sh`
+
+1. 检查并编辑 `DEV.ENV` 和 `BUILD.ENV` 以符合您的开发和打包环境
+
+### 依赖安装
 
 ```bash
-pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv noise
+pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv noise py7zr
 ```
 
-2. 复制程序目录下的`DEV.ENV_SAMPLE`文件并重命名为`DEV.ENV`
+### 安装 NSIS（用于生成安装版）
 
-3. 编辑`DEV.ENV`的内容以符合您当前的Python开发环境
+1. 访问 NSIS 官网：[https://nsis.sourceforge.io/Download](https://nsis.sourceforge.io/Download)
 
-```python
-# Site-Packages目录示例
-SITE_PACKAGE_PATH='C:\Python310\Lib\site-packages'
-```
+2. 下载并安装最新版本（建议安装到默认路径）
 
-4. 复制程序目录下的`BUILD.ENV_SAMPLE`文件并重命名为`BUILD.ENV`
-
-5. 编辑`BUILD.ENV`的内容以符合您当前的编译结果，如修改版本号
-
-```python
-## 【注意】 此文件会覆盖DEV.ENV的同名内容，敬请留意
-
-#构建时输出文件名是否包括 Git Hash 
-INCLUDE_GIT_HASH=true
-# 程序构建版本号
-BUILD_VERSION='0.2.2'
-```
-
-6. 复制程序目录下的`APP.ENV_SAMPLE`文件并重命名为`APP.ENV`
-
-至此打包运行前准备工作已完成
+3. 安装后请将 NSIS 安装路径加入系统 `PATH` 环境变量，例如：
+   
+   ```
+   C:\Program Files (x86)\NSIS\
+   ```
 
 ---
 
@@ -88,22 +95,12 @@ BUILD_VERSION='0.2.2'
 
 使用 [PyInstaller](https://www.pyinstaller.org/) 创建单文件 `.exe`
 
-### 1. 检查`DEV.ENV`和`BUILD.ENV`确保打包参数正确
+### 1. 检查 `DEV.ENV` 和 `BUILD.ENV` 确保打包参数正确
 
-### 2. 确保安装依赖后在目录执行以下命令
-
-```bash
-pyinstaller --clean main.spec
-```
-
-### 3. 使用 Nuitka 编译（*！尚未测试！*）
-
-1. 先运行`tkinterdnd2_version_fix.py`
-
-2. 运行以下脚本开始编译
+### 2. 确保安装依赖后在程序根目录执行以下命令：
 
 ```bash
-python nuitka_build.py
+pyinstaller main.spec --clean --noconfirm
 ```
 
 ---
@@ -113,14 +110,14 @@ python nuitka_build.py
 ### 0. 程序说明
 
 1. **增强水印模式：** 通过给输入图像添加人眼低可识别噪声来增加水印的附着面积，增强抗干扰能力。
-2. **启用兼容模式：** 调用*v0.1.3*的旧版水印处理算法，抗干扰差，已被弃用，仅作备份。
+2. **启用兼容模式：** 调用 *v0.1.3* 的旧版水印处理算法，抗干扰差，已被弃用，仅作备份。
 3. **提取显示原图：** 如果程序经过算法分析后仍然无法分析水印内容，那么显示提取后的原始数据，而不是程序处理后的图像。
 
 ### 1. 运行程序
 
-双击运行`BlindWatermarkGUI.exe`，稍等片刻使其完成启动
+双击运行 `BlindWatermarkGUI.exe`，稍等片刻使其完成启动
 
-或下载源代码，然后通过以下命令运行
+或下载源代码后，通过以下命令运行：
 
 ```bash
 python main.py
@@ -134,7 +131,7 @@ python main.py
 
 3. 拖拽图片进入中间区域
 
-4. 自动输出到原图目录：`原名-Watermark-ws{长度}-size{宽}x{高}.png` ，例如：
+4. 自动输出到原图目录：例如：
    
    ```
    example-Watermark-ws256-size1920x1080.png
@@ -146,9 +143,9 @@ python main.py
 
 2. 拖拽已加水印的图片
 
-3. 自动识别 `ws长度` 与 `sizeWxH`：
+3. 自动识别 `ws长度` 与 `sizeWxH`
    
-   * 若未识别，可手动输入水印长度与尺寸，新版只需输入原始尺寸（若无法提取）
+   * 若未识别，可手动输入原始尺寸，新版只需输入原始宽高
 
 4. 输出结果会弹窗展示水印内容
 
@@ -194,20 +191,12 @@ limitations under the License.
 
 ## 💡 后续计划（TODO）
 
-- [x] 对旧版本水印的解码支持
-
-- [x] 增加启动画面
-
-- [ ] 增加对自定义图像文件的嵌入/提取
-
-- [ ] 对任意文件嵌入的支持
-
-- [ ] 基于PGP的签名校验和机制
-
-- [ ] 优化性能
-
-- [ ] 减少打包体积
-
-- [ ] 美化图形界面
-
-- [ ] 进一步简化用户流程，实现操作向导
+* [x] 对旧版本水印的解码支持
+* [x] 增加启动画面
+* [ ] 增加对自定义图像文件的嵌入/提取
+* [ ] 对任意文件嵌入的支持
+* [ ] 基于PGP的签名校验和机制
+* [ ] 优化性能
+* [ ] 减少打包体积
+* [ ] 美化图形界面
+* [ ] 进一步简化用户流程，实现操作向导
