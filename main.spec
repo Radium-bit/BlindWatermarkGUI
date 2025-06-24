@@ -85,7 +85,7 @@ def create_7z_archive(source_dir, output_file):
             {
                 "id": py7zr.FILTER_LZMA2,  # -m0=LZMA2
                 "preset": 9,               # -mx9 (压缩级别)
-                "dict_size": 96 * 1024 * 1024,  # 96MB字典
+                "dict_size": 64 * 1024 * 1024,  # 64MB字典
             }]
         with py7zr.SevenZipFile(output_file, 'w', filters=filters) as archive:
             for root, dirs, files in os.walk(source_dir):
@@ -235,6 +235,7 @@ def generate_nsis_script(dist_dir, main_program_name, program_guid, installer_fi
 !include "MUI2.nsh"
 !include "Sections.nsh"
 !include "LogicLib.nsh"
+!include "FileFunc.nsh"
 !include "WinMessages.nsh"
 
 ; General
@@ -244,10 +245,13 @@ InstallDir "$PROGRAMFILES\\${{PRODUCT_NAME}}"
 InstallDirRegKey HKLM "${{PRODUCT_DIR_REGKEY}}" ""
 ShowInstDetails show
 ShowUnInstDetails show
+SetCompressor /SOLID lzma
+SetCompressorDictSize 64
 
 ; Variables
 Var ExistingPath
 Var IsUpgrade
+Var OldMainProgram
 
 ; Interface Settings
 !define MUI_ABORTWARNING
@@ -299,12 +303,14 @@ Function .onInit
   
   ; Check if program is already installed
   ReadRegStr $ExistingPath HKLM "${PRODUCT_DIR_REGKEY}" ""
+  ; Check if main program has recorded
+  ReadRegStr $OldMainProgram HKLM "${PRODUCT_DIR_REGKEY}" "MainProgramName"
   
   ; If existing installation found
   ${If} $ExistingPath != ""
     ; Set install directory to existing path (remove executable name)
     Push $ExistingPath
-    Call GetParent
+    ;Call GetParent
     Pop $INSTDIR
     
     StrCpy $IsUpgrade "true"
@@ -318,35 +324,15 @@ FunctionEnd
 
 ; Function to get parent directory from full file path
 Function GetParent
-  Exch $R0 ; Input path
+  Exch $R0
   Push $R1
-  Push $R2
-  Push $R3
   
-  StrLen $R1 $R0
-  IntOp $R1 $R1 - 1
+  ; Use NSIS Function
+  ${GetParent} $R0 $R1
+  StrCpy $R0 $R1
   
-  ; Find last backslash
-  StrCpy $R2 0
-  loop:
-    StrCpy $R3 $R0 1 $R2
-    StrCmp $R3 "" done
-    StrCmp $R3 "\" found
-    IntOp $R2 $R2 + 1
-    Goto loop
-  
-  found:
-    StrCpy $R1 $R2
-    IntOp $R2 $R2 + 1
-    Goto loop
-  
-  done:
-    StrCpy $R0 $R0 $R1
-  
-  Pop $R3
-  Pop $R2
   Pop $R1
-  Exch $R0 ; Output directory path
+  Exch $R0
 FunctionEnd
 
 ; Install sections
@@ -359,6 +345,9 @@ Section "!${PRODUCT_NAME}" SEC_Main
   
   ; If this is an upgrade, show details
   ${If} $IsUpgrade == "true"
+    ${AndIf} $OldMainProgram != ""
+      DetailPrint "Removing old main program: $OldMainProgram"
+      Delete "$INSTDIR\$OldMainProgram"
     DetailPrint "Overwriting existing installation"
   ${EndIf}
   
@@ -372,6 +361,7 @@ Section "!${PRODUCT_NAME}" SEC_Main
   
   ; Register installation
   WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR"
+  WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "MainProgramName" "${MAIN_PROGRAM_NAME}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayName" "${PRODUCT_NAME}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "UninstallString" "$INSTDIR\\uninst.exe"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\\${MAIN_PROGRAM_NAME}"
