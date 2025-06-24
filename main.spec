@@ -21,6 +21,7 @@ BUILD_VERSION = os.getenv('BUILD_VERSION')
 COMPRESS_LEVEL = os.getenv('COMPRESS_LEVEL')
 OPTIMIZE = os.getenv('OPTIMIZE')
 PROGRAM_GUID = os.getenv('PROGRAM_GUID')
+INCLUDE_ONEFILE = os.getenv('INCLUDE_ONEFILE', 'false').lower() == 'true'
 ENABLE_CONSOLE = os.getenv('ENABLE_CONSOLE_DEBUG', 'false').lower() == 'true'
 
 # 控制选项：是否在版本号后添加 Git hash
@@ -139,11 +140,10 @@ def create_NSIS_installer(dist_dir, main_program_name, program_guid, installer_f
             dist_dir, main_program_name, program_guid, installer_file, version
         )
        
-# 写入到 dist/build.nsi 中
+        # 写入到 build.nsi 中
         script_path = os.path.join("build.nsi")
         with open(script_path, 'w', encoding='utf-8-sig') as f:  # 使用 UTF-8 BOM 编码
             f.write(script_content)
-            script_path = f.name
        
         try:
             # 编译 NSIS 脚本
@@ -192,12 +192,26 @@ def create_NSIS_installer(dist_dir, main_program_name, program_guid, installer_f
         print(f"❌ 创建 NSIS 安装程序时发生错误: {e}")
         return False
 
-def generate_nsis_script(dist_dir, main_program_name, program_guid, installer_file, version):
+def generate_nsis_script(dist_dir, main_program_name, program_guid, installer_file, version, license_file="LICENSE.rtf"):
     """
     生成NSIS脚本内容，避免编码问题
+    
+    参数:
+    - dist_dir: 发布目录
+    - main_program_name: 主程序名称
+    - program_guid: 程序GUID
+    - installer_file: 安装程序文件名
+    - version: 版本号
+    - license_file: 许可证文件路径（默认为LICENSE.rtf）
     """
     # 提取程序名称（去掉扩展名和版本信息）
     program_name = main_program_name.split('_')[0] if '_' in main_program_name else main_program_name.replace('.exe', '')
+    
+    # 检查许可证文件是否存在
+    license_path = os.path.abspath(license_file) if os.path.exists(license_file) else ""
+    
+    # 获取dist目录的绝对路径并转换为Windows路径格式
+    dist_dir_abs = os.path.abspath(dist_dir)
     
     # 使用纯ASCII字符串，避免中文编码问题
     script_content = f'''
@@ -206,7 +220,8 @@ def generate_nsis_script(dist_dir, main_program_name, program_guid, installer_fi
 
 !define PRODUCT_NAME "{program_name}"
 !define PRODUCT_VERSION "{version}"
-!define PRODUCT_PUBLISHER "Radium-bit"
+!define MAIN_PROGRAM_NAME "{main_program_name}"
+!define PRODUCT_PUBLISHER "Radiumbit"
 !define PRODUCT_WEB_SITE "https://github.com/Radium-bit/BlindWatermarkGUI"
 !define PRODUCT_DIR_REGKEY "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\{main_program_name}"
 !define PRODUCT_UNINST_KEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{program_guid}"
@@ -214,6 +229,7 @@ def generate_nsis_script(dist_dir, main_program_name, program_guid, installer_fi
 
 ; Modern UI
 !include "MUI2.nsh"
+!include "Sections.nsh"
 
 ; General
 Name "${{PRODUCT_NAME}} ${{PRODUCT_VERSION}}"
@@ -228,7 +244,21 @@ ShowUnInstDetails show
 
 ; Pages
 !insertmacro MUI_PAGE_WELCOME
+'''
+    
+    # 如果许可证文件存在，添加许可证页面
+    if license_path:
+        script_content += f'''
+; License page
+!insertmacro MUI_PAGE_LICENSE "{license_path}"
+'''
+    
+    script_content += '''
 !insertmacro MUI_PAGE_DIRECTORY
+
+; Components page for optional features
+!insertmacro MUI_PAGE_COMPONENTS
+
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 
@@ -237,50 +267,78 @@ ShowUnInstDetails show
 
 ; Language files
 !insertmacro MUI_LANGUAGE "English"
+!insertmacro MUI_LANGUAGE "SimpChinese"
 
 ; Reserve files
 ReserveFile /plugin InstallOptions.dll
 
-; Install section
-Section "MainSection" SEC01
+; Component descriptions
+LangString DESC_MainProgram ${LANG_ENGLISH} "Main program files (required)"
+LangString DESC_MainProgram ${LANG_SIMPCHINESE} "主程序文件（必需）"
+LangString DESC_DesktopShortcut ${LANG_ENGLISH} "Create desktop shortcut"
+LangString DESC_DesktopShortcut ${LANG_SIMPCHINESE} "创建桌面快捷方式"
+
+; Install sections
+Section "!${PRODUCT_NAME}" SEC_Main
+  ; This section is required
+  SectionIn RO
+  
   SetOutPath "$INSTDIR"
   SetOverwrite ifnewer
   
   ; Install all files from dist directory
-  File /r "{os.path.abspath(dist_dir)}\\*.*"
+  File /r "''' + dist_dir_abs + '''\\*.*"
   
-  ; Create shortcuts
-  CreateDirectory "$SMPROGRAMS\\${{PRODUCT_NAME}}"
-  CreateShortCut "$SMPROGRAMS\\${{PRODUCT_NAME}}\\${{PRODUCT_NAME}}.lnk" "$INSTDIR\\{main_program_name}"
-  CreateShortCut "$DESKTOP\\${{PRODUCT_NAME}}.lnk" "$INSTDIR\\{main_program_name}"
+  ; Create start menu shortcuts (always)
+  CreateDirectory "$SMPROGRAMS\\${PRODUCT_NAME}"
+  CreateShortCut "$SMPROGRAMS\\${PRODUCT_NAME}\\${PRODUCT_NAME}.lnk" "$INSTDIR\\${MAIN_PROGRAM_NAME}"
+  CreateShortCut "$SMPROGRAMS\\${PRODUCT_NAME}\\Uninstall.lnk" "$INSTDIR\\uninst.exe"
   
   ; Register uninstaller
-  WriteRegStr HKLM "${{PRODUCT_DIR_REGKEY}}" "" "$INSTDIR\\{main_program_name}"
-  WriteRegStr HKLM "${{PRODUCT_UNINST_KEY}}" "DisplayName" "${{PRODUCT_NAME}}"
-  WriteRegStr HKLM "${{PRODUCT_UNINST_KEY}}" "UninstallString" "$INSTDIR\\uninst.exe"
-  WriteRegStr HKLM "${{PRODUCT_UNINST_KEY}}" "DisplayIcon" "$INSTDIR\\{main_program_name}"
-  WriteRegStr HKLM "${{PRODUCT_UNINST_KEY}}" "DisplayVersion" "${{PRODUCT_VERSION}}"
-  WriteRegStr HKLM "${{PRODUCT_UNINST_KEY}}" "URLInfoAbout" "${{PRODUCT_WEB_SITE}}"
-  WriteRegStr HKLM "${{PRODUCT_UNINST_KEY}}" "Publisher" "${{PRODUCT_PUBLISHER}}"
+  WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\\${MAIN_PROGRAM_NAME}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayName" "${PRODUCT_NAME}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "UninstallString" "$INSTDIR\\uninst.exe"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\\${MAIN_PROGRAM_NAME}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayVersion" "${PRODUCT_VERSION}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "URLInfoAbout" "${PRODUCT_WEB_SITE}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
   WriteUninstaller "$INSTDIR\\uninst.exe"
 SectionEnd
+
+Section "Desktop Shortcut" SEC_Desktop
+  ; This section is optional
+  CreateShortCut "$DESKTOP\\${PRODUCT_NAME}.lnk" "$INSTDIR\\${MAIN_PROGRAM_NAME}"
+SectionEnd
+
+; Section descriptions
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_Main} $(DESC_MainProgram)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_Desktop} $(DESC_DesktopShortcut)
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ; Uninstaller section
 Section Uninstall
   ; Remove shortcuts
-  Delete "$SMPROGRAMS\\${{PRODUCT_NAME}}\\${{PRODUCT_NAME}}.lnk"
-  Delete "$DESKTOP\\${{PRODUCT_NAME}}.lnk"
-  RMDir "$SMPROGRAMS\\${{PRODUCT_NAME}}"
+  Delete "$SMPROGRAMS\\${PRODUCT_NAME}\\${PRODUCT_NAME}.lnk"
+  Delete "$SMPROGRAMS\\${PRODUCT_NAME}\\Uninstall.lnk"
+  Delete "$DESKTOP\\${PRODUCT_NAME}.lnk"
+  RMDir "$SMPROGRAMS\\${PRODUCT_NAME}"
   
   ; Remove installation directory
   RMDir /r "$INSTDIR"
   
   ; Remove registry keys
-  DeleteRegKey HKLM "${{PRODUCT_UNINST_KEY}}"
-  DeleteRegKey HKLM "${{PRODUCT_DIR_REGKEY}}"
+  DeleteRegKey HKLM "${PRODUCT_UNINST_KEY}"
+  DeleteRegKey HKLM "${PRODUCT_DIR_REGKEY}"
   
   SetAutoClose true
 SectionEnd
+
+; Default section selections
+Function .onInit
+  ; Desktop shortcut is selected by default
+  ; User can uncheck it during installation
+FunctionEnd
 '''
     
     return script_content
@@ -350,7 +408,6 @@ def create_NSIS_installer_ascii(dist_dir, main_program_name, program_guid, insta
         script_path = os.path.join("build.nsi")
         with open(script_path, 'w', encoding='utf-8-sig') as f:  # 使用 UTF-8 BOM 编码
             f.write(script_content)
-            script_path = f.name
        
         try:
             # 编译 NSIS 脚本
@@ -399,12 +456,11 @@ def generate_ascii_nsis_script(dist_dir, main_program_name, program_guid, instal
     """
     program_name = main_program_name.split('_')[0] if '_' in main_program_name else main_program_name.replace('.exe', '')
     
-    # 转换路径为正斜杠，避免转义问题
-    dist_dir_forward = dist_dir.replace('\\', '/')
-    installer_file_forward = installer_file.replace('\\', '/')
+    # 获取dist目录的绝对路径
+    dist_dir_abs = os.path.abspath(dist_dir)
     
     script_content = f'''Name "{program_name} {version}"
-OutFile "{installer_file_forward}"
+OutFile "{installer_file}"
 InstallDir "$PROGRAMFILES\\{program_name}"
 RequestExecutionLevel admin
 
@@ -413,7 +469,7 @@ Page instfiles
 
 Section "Install"
     SetOutPath $INSTDIR
-    File /r "{dist_dir_forward}\\*.*"
+    File /r "{dist_dir_abs}\\*.*"
     
     CreateDirectory "$SMPROGRAMS\\{program_name}"
     CreateShortCut "$SMPROGRAMS\\{program_name}\\{program_name}.lnk" "$INSTDIR\\{main_program_name}"
@@ -531,7 +587,7 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher, compression=lzma, compress
 # 根据配置决定打包方式
 if INCLUDE_PROTABLE or INCLUDE_MSI:
     # 需要额外打包onedir模式
-    print("📦 检测到需要额外打包，将同时生成onefile和onedir版本")
+    print("📦 检测到需要额外打包，生成PrePackage中...")
     
     # 先创建onedir版本
     exe_dir = EXE(
@@ -563,30 +619,31 @@ if INCLUDE_PROTABLE or INCLUDE_MSI:
         upx_exclude=[],
         name=f'BlindWatermarkGUI_v{FILENAME_VERSION}_d'
     )
-    
-    # 创建onefile版本（原有逻辑）
-    exe = EXE(
-        pyz,
-        a.scripts,
-        a.binaries,
-        a.datas,
-        [],
-        name=f'BlindWatermarkGUI_v{FILENAME_VERSION}',
-        debug=False,
-        bootloader_ignore_signals=False,
-        strip=False,
-        upx=True,
-        upx_exclude=[],
-        runtime_tmpdir=None,
-        console=ENABLE_CONSOLE,
-        disable_windowed_traceback=False,
-        argv_emulation=False,
-        target_arch=None,
-        codesign_identity=None,
-        entitlements_file=None,
-        onefile=True,
-        optimize=OPTIMIZE
-    )
+    if INCLUDE_ONEFILE:
+        print("📦 检测到需要额外打包，生成Onefile中...")
+        # 创建onefile版本（原有逻辑）
+        exe = EXE(
+            pyz,
+            a.scripts,
+            a.binaries,
+            a.datas,
+            [],
+            name=f'BlindWatermarkGUI_v{FILENAME_VERSION}',
+            debug=False,
+            bootloader_ignore_signals=False,
+            strip=False,
+            upx=True,
+            upx_exclude=[],
+            runtime_tmpdir=None,
+            console=ENABLE_CONSOLE,
+            disable_windowed_traceback=False,
+            argv_emulation=False,
+            target_arch=None,
+            codesign_identity=None,
+            entitlements_file=None,
+            onefile=True,
+            optimize=OPTIMIZE
+        )
     
     # 后处理：创建7z包和MSI安装包
     import atexit
