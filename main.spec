@@ -83,7 +83,15 @@ def create_7z_archive(source_dir, output_file):
     """创建7z压缩包"""
     try:
         print(f"📦 正在创建Portable压缩包...")
-        with py7zr.SevenZipFile(output_file, 'w') as archive:
+        print(f"   源目录：{source_dir}")
+        print(f"   输出：{output_file}")
+        filters = [
+            {
+                "id": py7zr.FILTER_LZMA2,  # -m0=LZMA2
+                "preset": 9,               # -mx9 (压缩级别)
+                "dict_size": 96 * 1024 * 1024,  # 96MB字典
+            }]
+        with py7zr.SevenZipFile(output_file, 'w', filters=filters) as archive:
             for root, dirs, files in os.walk(source_dir):
                 for file in files:
                     file_path = os.path.join(root, file)
@@ -656,14 +664,23 @@ if INCLUDE_PROTABLE or INCLUDE_MSI:
         portable_success = True
         msi_success = True
         
+        # 打包前先把LICENSE.rtf复制到dist_dir（若有）
+        license_file_path = 'LICENSE.rtf'
+        if license_file_path and os.path.exists(license_file_path):
+            license_dest = os.path.join(dist_dir, os.path.basename(license_file_path))
+            shutil.copy2(license_file_path, license_dest)
+            print(f"📄 已复制许可证文件: {os.path.basename(license_file_path)}")
+        elif license_file_path:
+            print(f"⚠️  许可证文件不存在: {license_file_path}")
+        
         if INCLUDE_PROTABLE and os.path.exists(dist_dir):
             # 创建Portable 7z包
-            portable_7z = f'dist/BlindWatermarkGUI_v{FILENAME_VERSION}_Portable.7z'
+            portable_7z = os.path.join('dist',f'BlindWatermarkGUI_v{FILENAME_VERSION}_Portable.7z')
             portable_success = create_7z_archive(dist_dir, portable_7z)
         
         if INCLUDE_MSI and os.path.exists(dist_dir):
             # 创建安装包
-            installer_file = f'dist/BlindWatermarkGUI_v{FILENAME_VERSION}_Installer.exe'
+            installer_file = os.path.join(f'dist','BlindWatermarkGUI_v{FILENAME_VERSION}_Installer.exe')
             # msi_success = create_msi_installer(dist_dir, msi_file, FINAL_VERSION)
             msi_success = create_NSIS_installer(dist_dir,main_program_name,PROGRAM_GUID, installer_file, FINAL_VERSION)
         
