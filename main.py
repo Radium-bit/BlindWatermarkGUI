@@ -133,16 +133,84 @@ def close_splash():
             print(f"关闭启动画面时出错: {e}")
             splash_window = None
 
+## 启动前检查VC Redist
+def check_vc_redist():
+    from tkinter import messagebox
+    """检查Visual C++ Redistributable x64是否已安装"""
+    try:
+        # 检查注册表中是否存在VC++ Redist
+        import winreg
+        
+        # 常见的VC++ Redist注册表路径
+        redist_paths = [
+            r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+            r"SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64",
+            r"SOFTWARE\Classes\Installer\Dependencies\Microsoft.VS.VC_RuntimeMinimumVSU_amd64,v14",
+            r"SOFTWARE\Classes\Installer\Dependencies\{e2803110-78b3-4664-a479-3611a381656a}",
+        ]
+        
+        for path in redist_paths:
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path):
+                    print("Found VC Redist.")
+                    return True
+            except FileNotFoundError:
+                continue
+                
+        return False
+    except ImportError:
+        print("ImportError")
+        # 如果不是Windows系统，跳过检查
+        return True
+    except Exception as e:
+        messagebox.showerror("找不到VC++ Redist，请安装后重新打开本程序")
+        print(f"检查VC++ Redist时出错: {e}")
+        return False
+
+def install_vc_redist():
+    from tkinter import messagebox
+    import subprocess
+    """
+    安装Visual C++ Redistributable。
+    该方法会打开安装包，然后程序会退出，由用户完成安装。
+    """
+    redist_path = ""
+    if getattr(sys, 'frozen', False):
+        # 打包环境：使用临时解压目录
+        base_path = sys._MEIPASS
+        redist_path = os.path.join(base_path, "VC_redist.x64.exe")
+
+    if not os.path.exists(redist_path):
+        error_message = f"未找到VC++ Redist安装包: {redist_path}\n请确保 'VC_redist.x64.exe' 文件与本程序在同一目录下。"
+        messagebox.showerror("安装错误", error_message)
+        raise FileNotFoundError(error_message)
+
+    try:
+        # 以交互式方式运行安装程序
+        # 注意：这里我们不再使用 /quiet 参数，并移除了 check=True
+        # 因为我们希望程序打开安装包后就退出，不等待安装结果
+        subprocess.Popen([redist_path])
+        
+        # 提示用户手动完成安装
+        messagebox.showinfo("安装提示", "VC++ Redist 安装程序已启动，请按照屏幕上的指示完成安装后再启动本程序。\n本程序即将退出。")
+        
+        # 程序退出
+        sys.exit() 
+
+    except Exception as e:
+        error_message = f"启动VC++ Redist安装程序时发生错误: {e}"
+        messagebox.showerror("启动错误：", error_message)
+        raise
+
 def import_modules_progressively():
     """逐步导入模块"""
     global imported_modules, main_root
-    
+    #开始加载模块
     try:
         # 第一阶段：基础模块
         update_splash_status("加载基础模块...")
         from dotenv import load_dotenv
         imported_modules['load_dotenv'] = load_dotenv
-        
         update_splash_status("加载UI框架...")
         from tkinterdnd2 import DND_FILES, TkinterDnD
         imported_modules['DND_FILES'] = DND_FILES
@@ -840,6 +908,14 @@ if __name__ == "__main__":
         pass
     
     try:
+        ## 在加载UI这些模块之前，先检查是否存在Visual C++ Redist x64 
+        ## 不存在的话帮用户打开进行安装，安装包在打包环境的根目录中，叫VC_redist.x64.exe
+        ## 如果无法打开这个应用程序，也检测不到vc64，立即终止抛出异常
+        print("Checking VC++ Redist...")
+        if not check_vc_redist():
+            print("Installing VC++ Redist...")
+            install_vc_redist()
+
         # 第四步：逐步导入其他模块
         update_splash_status("准备加载程序模块...")
         

@@ -1,15 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
-import tempfile
 from PyInstaller.utils.hooks import collect_data_files
 import os
-import re
 import json
 import lzma
-import uuid
 import subprocess
 import shutil
 import py7zr
-import glob
 from dotenv import load_dotenv
 
 load_dotenv('DEV.ENV')
@@ -645,6 +641,8 @@ a = Analysis(
         ## 拆分后的模块
         # watermark 模块
         ('watermark', 'watermark'),
+        ## Microsoft Visual C++ Redistributable (x64)
+        ('thirdParty/VC_redist.x64.exe','.')
     ],
     hiddenimports = REQUIRED_IMPORTS + [
     imp.strip('"') for imp in json.load(open('hidden_imports.json'))
