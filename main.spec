@@ -231,7 +231,7 @@ def generate_nsis_script(dist_dir, main_program_name, program_guid, installer_fi
 !define MAIN_PROGRAM_NAME "{main_program_name}"
 !define PRODUCT_PUBLISHER "Radiumbit"
 !define PRODUCT_WEB_SITE "https://github.com/Radium-bit/BlindWatermarkGUI"
-!define PRODUCT_DIR_REGKEY "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\{main_program_name}"
+!define PRODUCT_DIR_REGKEY "Software\\Microsoft\\Windows\\CurrentVersion\\App Paths"
 !define PRODUCT_UNINST_KEY "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{program_guid}"
 !define PRODUCT_UNINST_ROOT_KEY "HKLM"
 
