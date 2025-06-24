@@ -12,4 +12,8 @@ main.dist/
 main.onefile-build/
 build.nsi
 
+# NSIS Build cahces
 .wix
+
+# Test files
+test.py

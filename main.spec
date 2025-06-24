@@ -202,7 +202,7 @@ def create_NSIS_installer(dist_dir, main_program_name, program_guid, installer_f
 
 def generate_nsis_script(dist_dir, main_program_name, program_guid, installer_file, version, license_file="LICENSE.rtf"):
     """
-    生成NSIS脚本内容，避免编码问题
+    生成NSIS脚本内容，支持版本检查和覆盖安装提示
     
     参数:
     - dist_dir: 发布目录
@@ -224,7 +224,7 @@ def generate_nsis_script(dist_dir, main_program_name, program_guid, installer_fi
     # 使用纯ASCII字符串，避免中文编码问题
     script_content = f'''
 ; NSIS Script for {program_name}
-; Generated automatically
+; Generated automatically with version check support
 
 !define PRODUCT_NAME "{program_name}"
 !define PRODUCT_VERSION "{version}"
@@ -238,6 +238,8 @@ def generate_nsis_script(dist_dir, main_program_name, program_guid, installer_fi
 ; Modern UI
 !include "MUI2.nsh"
 !include "Sections.nsh"
+!include "LogicLib.nsh"
+!include "WinMessages.nsh"
 
 ; General
 Name "${{PRODUCT_NAME}} ${{PRODUCT_VERSION}}"
@@ -246,6 +248,10 @@ InstallDir "$PROGRAMFILES\\${{PRODUCT_NAME}}"
 InstallDirRegKey HKLM "${{PRODUCT_DIR_REGKEY}}" ""
 ShowInstDetails show
 ShowUnInstDetails show
+
+; Variables
+Var ExistingPath
+Var IsUpgrade
 
 ; Interface Settings
 !define MUI_ABORTWARNING
@@ -286,13 +292,79 @@ LangString DESC_MainProgram ${LANG_SIMPCHINESE} "主程序文件（必需）"
 LangString DESC_DesktopShortcut ${LANG_ENGLISH} "Create desktop shortcut"
 LangString DESC_DesktopShortcut ${LANG_SIMPCHINESE} "创建桌面快捷方式"
 
+; Installation overwrite messages
+LangString MSG_ProgramExists ${LANG_ENGLISH} "A program already exists in the target directory.$\\r$\\n$\\r$\\nDo you want to overwrite the existing installation?"
+LangString MSG_ProgramExists ${LANG_SIMPCHINESE} "目标目录已存在程序。$\\r$\\n$\\r$\\n是否要覆盖现有安装？"
+
+; Function to check existing installation
+Function .onInit
+  ; Initialize variables
+  StrCpy $IsUpgrade "false"
+  
+  ; Check if program is already installed
+  ReadRegStr $ExistingPath HKLM "${PRODUCT_DIR_REGKEY}" ""
+  
+  ; If existing installation found
+  ${If} $ExistingPath != ""
+    ; Set install directory to existing path (remove executable name)
+    Push $ExistingPath
+    Call GetParent
+    Pop $INSTDIR
+    
+    StrCpy $IsUpgrade "true"
+    ; Show confirmation dialog
+    MessageBox MB_YESNO|MB_ICONQUESTION "$(MSG_ProgramExists)" /SD IDYES IDYES +2
+    Abort
+  ${EndIf}
+  
+  ; Desktop shortcut is selected by default
+FunctionEnd
+
+; Function to get parent directory from full file path
+Function GetParent
+  Exch $R0 ; Input path
+  Push $R1
+  Push $R2
+  Push $R3
+  
+  StrLen $R1 $R0
+  IntOp $R1 $R1 - 1
+  
+  ; Find last backslash
+  StrCpy $R2 0
+  loop:
+    StrCpy $R3 $R0 1 $R2
+    StrCmp $R3 "" done
+    StrCmp $R3 "\" found
+    IntOp $R2 $R2 + 1
+    Goto loop
+  
+  found:
+    StrCpy $R1 $R2
+    IntOp $R2 $R2 + 1
+    Goto loop
+  
+  done:
+    StrCpy $R0 $R0 $R1
+  
+  Pop $R3
+  Pop $R2
+  Pop $R1
+  Exch $R0 ; Output directory path
+FunctionEnd
+
 ; Install sections
 Section "!${PRODUCT_NAME}" SEC_Main
   ; This section is required
   SectionIn RO
   
   SetOutPath "$INSTDIR"
-  SetOverwrite ifnewer
+  SetOverwrite on
+  
+  ; If this is an upgrade, show details
+  ${If} $IsUpgrade == "true"
+    DetailPrint "Overwriting existing installation"
+  ${EndIf}
   
   ; Install all files from dist directory
   File /r "''' + dist_dir_abs + '''\\*.*"
@@ -302,15 +374,19 @@ Section "!${PRODUCT_NAME}" SEC_Main
   CreateShortCut "$SMPROGRAMS\\${PRODUCT_NAME}\\${PRODUCT_NAME}.lnk" "$INSTDIR\\${MAIN_PROGRAM_NAME}"
   CreateShortCut "$SMPROGRAMS\\${PRODUCT_NAME}\\Uninstall.lnk" "$INSTDIR\\uninst.exe"
   
-  ; Register uninstaller
-  WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\\${MAIN_PROGRAM_NAME}"
+  ; Register installation
+  WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayName" "${PRODUCT_NAME}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "UninstallString" "$INSTDIR\\uninst.exe"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\\${MAIN_PROGRAM_NAME}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayVersion" "${PRODUCT_VERSION}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "URLInfoAbout" "${PRODUCT_WEB_SITE}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "InstallLocation" "$INSTDIR"
   WriteUninstaller "$INSTDIR\\uninst.exe"
+  
+  ; Update version in registry
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayVersion" "${PRODUCT_VERSION}"
 SectionEnd
 
 Section "Desktop Shortcut" SEC_Desktop
@@ -341,12 +417,6 @@ Section Uninstall
   
   SetAutoClose true
 SectionEnd
-
-; Default section selections
-Function .onInit
-  ; Desktop shortcut is selected by default
-  ; User can uncheck it during installation
-FunctionEnd
 '''
     
     return script_content
