@@ -680,7 +680,7 @@ if INCLUDE_PROTABLE or INCLUDE_MSI:
         
         if INCLUDE_MSI and os.path.exists(dist_dir):
             # 创建安装包
-            installer_file = os.path.join(f'dist','BlindWatermarkGUI_v{FILENAME_VERSION}_Installer.exe')
+            installer_file = os.path.join('dist',f'BlindWatermarkGUI_v{FILENAME_VERSION}_Installer.exe')
             # msi_success = create_msi_installer(dist_dir, msi_file, FINAL_VERSION)
             msi_success = create_NSIS_installer(dist_dir,main_program_name,PROGRAM_GUID, installer_file, FINAL_VERSION)
         
