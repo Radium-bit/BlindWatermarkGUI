@@ -439,12 +439,14 @@ def create_app_class():
             placeholder_frame = tk.Frame(horizontal_frame, bg="white")  # 透明占位
             placeholder_frame.pack(side="right", anchor="ne", pady=30)
             format_frame = tk.Frame(self.root, bg="white")
+            algorithm_frame = tk.Frame(self.root, bg="white")
             # 增强模式选项
             from tkinter import BooleanVar, Checkbutton
             options_frame_up = tk.Frame(horizontal_frame, bg="white")
             options_frame_up.pack(side="right", anchor="se", pady=(20,0))
             options_frame_down = tk.Frame(format_frame, bg="white")
             options_frame_down.pack(side="right", anchor="ne", pady=(0,2))
+            # 增强模式选项
             self.enhanced_mode = BooleanVar(value=False)
             self.enhanced_check = Checkbutton(
                 options_frame_up, 
@@ -454,15 +456,17 @@ def create_app_class():
             )
             self.enhanced_check.pack(anchor='e',pady=(0,2))
 
-            # 兼容性模式选项
-            self.compatibility_mode = BooleanVar(value=False)
-            self.compatibility_check = Checkbutton(
+            # 嵌入自定图片
+            self.is_custom_image = BooleanVar(value=False)
+            self.custom_check = Checkbutton(
                 options_frame_up, 
-                text="启用兼容模式",
-                variable=self.compatibility_mode,
-                command=self.toggle_compatibility_mode
+                text="使用自定图片",
+                variable=self.is_custom_image,
+                # command=self.show_useing_custom_image
             )
-            self.compatibility_check.pack(anchor='e')
+            self.custom_check.pack(anchor='e',pady=(0,2))
+            # 兼容性模式
+            self.compatibility_mode = BooleanVar(value=False)
 
             # 原图显示选项
             self.show_orignal_extract_picture = BooleanVar(value=False)
@@ -479,7 +483,15 @@ def create_app_class():
             tk.Label(format_frame, text="输出格式:", bg="white").pack(side="left")
             tk.Radiobutton(format_frame, text="PNG", variable=self.output_format, value="PNG", bg="white").pack(side="left", padx=5)
             tk.Radiobutton(format_frame, text="JPG", variable=self.output_format, value="JPG", bg="white").pack(side="left", padx=5)
-            
+            # 算法版本选择
+            self.algorithm_version = tk.StringVar(value=2)
+            algorithm_frame.pack(pady=2, fill="x", anchor="nw", padx=20)
+            self.algorithm_version.trace_add('write', self.on_algorithm_version_change)
+            tk.Label(algorithm_frame, text="算法版本:", bg="white").pack(side="left")
+            tk.Radiobutton(algorithm_frame, text="v3", variable=self.algorithm_version, value=3, bg="white") #先不显示等v3做出来先
+            tk.Radiobutton(algorithm_frame, text="v2", variable=self.algorithm_version, value=2, bg="white").pack(side="left", padx=5)
+            tk.Radiobutton(algorithm_frame, text="v1", variable=self.algorithm_version, value=1, bg="white").pack(side="left", padx=5)
+
             # 密码输入
             frm_pwd = tk.Frame(self.root, bg="white")
             frm_pwd.pack(pady=5, fill="x", padx=20)
@@ -577,6 +589,16 @@ def create_app_class():
             else:
                 # 禁用兼容模式 - 隐藏输入框
                 self.frm_len.pack_forget()
+
+        # 当算法版本被切换时
+        def on_algorithm_version_change(self, *args):
+            selected_version = int(self.algorithm_version.get())
+            if selected_version == 1:
+                self.compatibility_mode.set(True)
+                self.toggle_compatibility_mode()
+            elif selected_version == 2:
+                self.compatibility_mode.set(False)
+                self.toggle_compatibility_mode
 
         def _load_build_env(self):
             """加载APP.ENV配置文件并设置版本号"""
