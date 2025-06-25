@@ -1,4 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
+## Copyright (c) 2025 Radium-bit
+## SPDX-License-Identifier: Apache-2.0
+## See LICENSE file for full terms
 from PyInstaller.utils.hooks import collect_data_files
 import os
 import json

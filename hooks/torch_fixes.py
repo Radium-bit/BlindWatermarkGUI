@@ -1,3 +1,7 @@
+## Copyright (c) 2025 Radium-bit
+## SPDX-License-Identifier: Apache-2.0
+## See LICENSE file for full terms
+
 # hooks/torch_fixes.py
 """
 修复Torch Numpy初始化问题的补丁

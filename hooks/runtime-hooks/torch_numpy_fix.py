@@ -1,3 +1,7 @@
+## Copyright (c) 2025 Radium-bit
+## SPDX-License-Identifier: Apache-2.0
+## See LICENSE file for full terms
+
 # hooks/runtime-hooks/torch_numpy_fix.py
 """
 在Torch导入前应用的运行时修复

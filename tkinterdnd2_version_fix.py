@@ -1,3 +1,7 @@
+## Copyright (c) 2025 Radium-bit
+## SPDX-License-Identifier: Apache-2.0
+## See LICENSE file for full terms
+
 #!/usr/bin/env python3
 """
 tkinterdnd2 版本属性修复脚本
