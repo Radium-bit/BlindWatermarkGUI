@@ -598,7 +598,7 @@ def create_app_class():
                 self.toggle_compatibility_mode()
             elif selected_version == 2:
                 self.compatibility_mode.set(False)
-                self.toggle_compatibility_mode
+                self.toggle_compatibility_mode()
 
         def _load_build_env(self):
             """加载APP.ENV配置文件并设置版本号"""
