@@ -205,10 +205,6 @@ class WatermarkEmbedder:
         # 启动工作线程
         threading.Thread(target=worker, daemon=True).start()
         
-        # 删除临时转换的图片
-        if 'temp_img' in locals() and os.path.exists(temp_img):
-            os.remove(temp_img)
-        
         # 隐藏处理窗口
         self.app.hide_processing_window()
 
