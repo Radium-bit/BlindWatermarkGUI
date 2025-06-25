@@ -91,8 +91,8 @@ class WatermarkEmbedder:
                                 self.app.root.after(0, self.app.hide_processing_window)
                             
                 # 定义所有临时文件变量
-                tmp_in = os.path.join(output_dir, f"input{ext}")
-                tmp_out = os.path.join(output_dir, f"output{ext}")
+                tmp_in = tempfile.NamedTemporaryFile(suffix=ext,delete=False).name
+                tmp_out = tempfile.NamedTemporaryFile(suffix=ext,delete=False).name
                 temp_img = None
                 
                 # 临时保存转换后的图片(仅当需要转换时)
@@ -239,8 +239,8 @@ class WatermarkEmbedder:
                                 self.app.root.after(0, self.app.hide_processing_window)
                             
                 # 定义所有临时文件变量
-                tmp_in = os.path.join(output_dir, f"input{ext}")
-                tmp_out = os.path.join(output_dir, f"output{ext}")
+                tmp_in = tempfile.NamedTemporaryFile(suffix=ext,delete=False).name
+                tmp_out = tempfile.NamedTemporaryFile(suffix=ext,delete=False).name
                 temp_img = None
                 
                 # 临时保存转换后的图片(仅当需要转换时)

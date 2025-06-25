@@ -398,7 +398,7 @@ def create_app_class():
             self.root.title(f"BlindWatermarkGUI v{self.version}")
             self.root.geometry("580x760")
             self.root.configure(bg="white")
-            self.qr_window = None
+            # self.qr_window = None
 
             # 初始化水印处理器
             self.embedder = imported_modules['WatermarkEmbedder'](self)
@@ -745,19 +745,20 @@ def create_app_class():
             ## 显示二维码窗口
             import tkinter as tk
             from tkinter import messagebox
-            if self.qr_window:
-                self.qr_window.destroy()
-                
-            self.qr_window = tk.Toplevel(self.root)
-            self.qr_window.title("水印提取结果")
-            self.qr_window.geometry("600x700")
+            # if self.qr_window:
+            #     self.qr_window.destroy()
+            # 每次调用都创建一个新的 Toplevel 窗口实例
+            
+            new_qr_window = tk.Toplevel(self.root)
+            new_qr_window.title("水印提取结果")
+            new_qr_window.geometry("600x700")
             
             # 清理文件回调
             def cleanup_callback():
                 return True
 
             # 添加窗口关闭事件处理
-            def on_close():
+            def on_close_show_qr_window():
                 if qr_path and os.path.exists(qr_path):
                     try:
                         os.remove(qr_path)
@@ -765,15 +766,15 @@ def create_app_class():
                     except:
                         return cleanup_callback
                         pass
-                self.qr_window.destroy()
+                new_qr_window.destroy()
                 
-            self.qr_window.protocol("WM_DELETE_WINDOW", on_close)
+            new_qr_window.protocol("WM_DELETE_WINDOW", on_close_show_qr_window)
             
             # 显示状态标题
             if status==True:
-                tk.Label(self.qr_window, text="水印提取成功", font=("Arial", 12, "bold")).pack()
+                tk.Label(new_qr_window, text="水印提取成功", font=("Arial", 12, "bold")).pack()
             else:
-                tk.Label(self.qr_window, text="水印提取失败，请检查下方是否存在二维码图像", font=("Arial", 12, "bold")).pack()
+                tk.Label(new_qr_window, text="水印提取失败，请检查下方是否存在二维码图像", font=("Arial", 12, "bold")).pack()
             
             # 处理传入的图片
             if images:
@@ -788,30 +789,30 @@ def create_app_class():
                             new_size = (int(img.size[0] * scale), int(img.size[1] * scale))
                             img = img.resize(new_size, imported_modules['Image'].Resampling.LANCZOS)
                         img_tk = imported_modules['ImageTk'].PhotoImage(img)
-                        label = tk.Label(self.qr_window, image=img_tk)
+                        label = tk.Label(new_qr_window, image=img_tk)
                         label.image = img_tk  # 保持引用
                         label.pack(pady=5)
                         # 显示尺寸标签
-                        tk.Label(self.qr_window, text=f"尺寸: {size}").pack()
+                        tk.Label(new_qr_window, text=f"尺寸: {size}").pack()
             elif qr_path:
                 try:
                     img = imported_modules['Image'].open(qr_path)
                     img_tk = imported_modules['ImageTk'].PhotoImage(img)
-                    label = tk.Label(self.qr_window, image=img_tk)
+                    label = tk.Label(new_qr_window, image=img_tk)
                     label.image = img_tk  # 保持引用
                     label.pack(pady=5)
                 except Exception as e:
                     messagebox.showerror("错误", f"无法显示图片: {str(e)}")
             # 显示解码文本（如果有）
             if text:
-                tk.Label(self.qr_window, text="解码文本:", font=("Arial", 10, "bold")).pack()
-                text_label = tk.Label(self.qr_window, text=text, wraplength=380, justify="left")
+                tk.Label(new_qr_window, text="解码文本:", font=("Arial", 10, "bold")).pack()
+                text_label = tk.Label(new_qr_window, text=text, wraplength=380, justify="left")
                 text_label.pack(pady=5)
             
             # 关闭按钮
-            close_btn = tk.Button(self.qr_window, text="关闭", 
+            close_btn = tk.Button(new_qr_window, text="关闭", 
                                 command=lambda: [os.unlink(qr_path) if qr_path and os.path.exists(qr_path) else None,
-                                self.qr_window.destroy()])
+                                new_qr_window.destroy()])
             close_btn.pack(pady=10)
         
         def animate_processing(self):
