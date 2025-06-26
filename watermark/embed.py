@@ -606,7 +606,7 @@ class WatermarkEmbedder:
                     encoded_watermark_bits = adapt_to_watermark_capacity(
                         wm_text, 
                         available_capacity,
-                        safety_margin=0.85  # 使用85%的可用容量，留出安全余量
+                        safety_margin=0.98  # 使用98%的可用容量，塞满它逝世
                     )
                     
                     print(f"编码完成，生成 {len(encoded_watermark_bits)} 比特的水印数据")

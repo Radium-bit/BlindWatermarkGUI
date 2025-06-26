@@ -621,6 +621,10 @@ def create_app_class():
             elif selected_version == 2:
                 self.compatibility_mode.set(False)
                 self.toggle_compatibility_mode()
+            elif selected_version == 3:
+                self.is_custom_image.set(False)
+                self.compatibility_mode.set(False)
+                self.show_v3_experimental_warning()
 
         def _load_build_env(self):
             """加载APP.ENV配置文件并设置版本号"""
@@ -930,6 +934,10 @@ def create_app_class():
                     self.enhanced_mode.set(False)
                 else:
                     messagebox.showwarning("提示", "增强模式会轻微降低图像质量！\n但可提高抗干扰能力，\n请确保您的图片不会丢失重要信息。")
+
+        def show_v3_experimental_warning(self):
+            from tkinter import messagebox
+            messagebox.showwarning("警告！实验性","目前v3系列水印算法依然在调整中，\n目前它不一定比v2水印更可靠，甚至更差\n甚至会出现不兼容的情况！\n【仅供测试，请勿实际应用，后果自负！】")
 
         def show_compatibility_info(self):
             """显示兼容模式信息（不触发输入框显示/隐藏）"""

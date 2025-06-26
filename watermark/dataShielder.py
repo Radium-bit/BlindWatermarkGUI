@@ -279,7 +279,8 @@ def encode_binary_to_watermark(
     max_capacity_bits: int = None,
     rs_n: int = 255,
     rs_k: int = 63,
-    sync_header: int = 0xB593
+    sync_header: int = 0xB593,
+    interleave_depth: int = 8
 ) -> List[bool]:
     """将任意二进制数据编码为水印布尔列表"""
     
@@ -346,6 +347,10 @@ def encode_binary_to_watermark(
             for bit in range(8):
                 master_bitstream.append(bool((byte_val >> (7 - bit)) & 1))
     
+    # 6.5. 添加交织编码
+    if interleave_depth > 1:
+        master_bitstream = interleave_bitstream(master_bitstream, interleave_depth)
+    
     # 7. 重复填充到目标容量
     if max_capacity_bits is None:
         final_bitstream = master_bitstream
@@ -360,8 +365,19 @@ def encode_binary_to_watermark(
     return final_bitstream
 
 
+def interleave_bitstream(bitstream, depth=8):
+    """对比特流进行交织"""
+    rows = [bitstream[i::depth] for i in range(depth)]
+    interleaved = []
+    for i in range(max(len(row) for row in rows)):
+        for row in rows:
+            if i < len(row):
+                interleaved.append(row[i])
+    return interleaved
+
+
 def find_sync_patterns(bitstream: List[bool], sync_header: int = 0xB593) -> List[int]:
-    """在比特流中查找同步头模式（修复版）"""
+    """在比特流中查找同步头模式"""
     # 将同步头转换为比特模式
     sync_pattern = []
     for bit in range(16):
@@ -454,12 +470,39 @@ def parse_packet_metadata(packet_data: bytes) -> Tuple[Optional[Dict], bytes]:
         return None, packet_data[10:] if len(packet_data) > 10 else packet_data
 
 
+def deinterleave_bitstream(bitstream, depth=8):
+    """对比特流进行去交织"""
+    if depth <= 1:
+        return bitstream
+    
+    total_bits = len(bitstream)
+    cols = (total_bits + depth - 1) // depth  # 向上取整
+    
+    # 重建行
+    rows = [[] for _ in range(depth)]
+    
+    for i, bit in enumerate(bitstream):
+        row_idx = i % depth
+        rows[row_idx].append(bit)
+    
+    # 重新排列
+    deinterleaved = []
+    for col in range(cols):
+        for row_idx in range(depth):
+            if col < len(rows[row_idx]):
+                deinterleaved.append(rows[row_idx][col])
+    
+    return deinterleaved
+
+
+
 def decode_watermark_to_binary(
     bitstream: List[bool],
     rs_n: int = 255,
     rs_k: int = 63,
     sync_header: int = 0xB593,
     max_attempts: int = 1000,
+    interleave_depth: int = 8,
     debug: bool = False
 ) -> Tuple[Optional[bytes], Dict]:
     """从水印比特流解码出原始二进制数据"""
@@ -476,8 +519,21 @@ def decode_watermark_to_binary(
         'chunks_recovered': {},
         'final_payload_length': 0,
         'compression_successful': False,
+        'interleaving_applied': interleave_depth > 1,
+        'original_bitstream_length': len(bitstream),
         'debug_info': []
     }
+    
+    if debug:
+        print(f"[DEBUG] 原始比特流长度: {len(bitstream)}")
+        print(f"[DEBUG] 交织深度: {interleave_depth}")
+    
+    # 0. 数据去交织处理
+    if interleave_depth > 1:
+        bitstream = deinterleave_bitstream(bitstream, interleave_depth)
+        if debug:
+            print(f"[DEBUG] 去交织后比特流长度: {len(bitstream)}")
+            print(f"[DEBUG] 去交织前后长度变化: {stats['original_bitstream_length']} -> {len(bitstream)}")
     
     # 1. 提取所有可能的数据包
     raw_packets = extract_packets_from_bitstream(bitstream, rs_n, sync_header)
@@ -503,7 +559,7 @@ def decode_watermark_to_binary(
             break
         processed_count += 1
         
-        if debug and packet_idx < 3:  # 只调试前3个包
+        if debug and packet_idx < 30:  # 只调试前3个包
             print(f"\n[DEBUG] 数据包 {packet_idx} @ 位置 {position}:")
             print(f"  长度: {len(packet_bytes)} 字节")
             print(f"  前16字节: {packet_bytes[:16].hex()}")
@@ -580,7 +636,8 @@ def decode_watermark_to_binary(
             missing_chunks.append(i)
     
     if missing_chunks:
-        print(f"警告：缺失分片 {missing_chunks}，尝试部分恢复...")
+        if debug:
+            print(f"警告：缺失分片 {missing_chunks}，尝试部分恢复...")
     
     # 5. 重组压缩数据
     compressed_data = b''
@@ -610,9 +667,14 @@ def decode_watermark_to_binary(
     try:
         original_data = zlib.decompress(compressed_data)
         stats['compression_successful'] = True
+        
+        if debug:
+            print(f"[DEBUG] 解压缩成功，最终数据长度: {len(original_data)}")
+        
         return original_data, stats
     except Exception as e:
-        print(f"解压缩失败: {e}")
+        if debug:
+            print(f"解压缩失败: {e}")
         return compressed_data, stats
 
 
@@ -801,6 +863,7 @@ def test_rs_encoding():
     
     rs_configs = [
         (255, 63),
+        (255, 20),
         (255, 127),
         (127, 31)
     ]
