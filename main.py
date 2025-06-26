@@ -502,12 +502,21 @@ def create_app_class():
             self.entry_pwd.pack(side="left", fill="x", expand=True)
 
             # 水印文本输入
-            frm_wm = tk.Frame(self.root, bg="white")
-            frm_wm.pack(pady=5, fill="both", padx=20)
-            tk.Label(frm_wm, text="水印文本（仅嵌入时有效）：", bg="white").pack(anchor="w")
-            self.text_wm = tk.Text(frm_wm, height=4)
+            self.frm_wm = tk.Frame(self.root, bg="white")
+            self.frm_wm.pack(pady=5, fill="both", padx=20)
+            tk.Label(self.frm_wm, text="水印文本（仅嵌入时有效）：", bg="white").pack(anchor="w")
+            self.text_wm = tk.Text(self.frm_wm, height=4)
             self.text_wm.pack(fill="both", expand=True)
             self.load_config()
+
+            # 自定义嵌入数据
+            self.frm_custom_data = tk.Frame(self.root, bg="white")
+            tk.Label(self.frm_custom_data, text="自定水印路径（拖放文件到此处）：", bg="white").pack(side="left")
+            self.custom_data = tk.Entry(self.frm_custom_data)
+            self.custom_data.pack(side="left", fill="x", expand=True)
+            # 配置输入框以接受拖放文件
+            self.custom_data.drop_target_register(imported_modules['DND_FILES']) # 注册文件拖放（DND_FILES）
+            self.custom_data.dnd_bind('<<Drop>>', self.on_drop_custom_data)
 
             # 水印长度输入 - 兼容模式专用，默认隐藏
             self.frm_len = tk.Frame(self.root, bg="white")
@@ -523,15 +532,6 @@ def create_app_class():
             self.entry_size = tk.Entry(self.frm_size)
             self.entry_size.insert(0, "")
             self.entry_size.pack(side="left", fill="x", expand=True)
-
-            # 自定义嵌入数据
-            self.frm_custom_data = tk.Frame(self.root, bg="white")
-            tk.Label(self.frm_custom_data, text="自定水印路径（拖放文件到此处）：", bg="white").pack(side="left")
-            self.custom_data = tk.Entry(self.frm_custom_data)
-            self.custom_data.pack(side="left", fill="x", expand=True)
-            # 配置输入框以接受拖放文件
-            self.custom_data.drop_target_register(imported_modules['DND_FILES']) # 注册文件拖放（DND_FILES）
-            self.custom_data.dnd_bind('<<Drop>>', self.on_drop_custom_data)
 
             # 输出目录
             frm_out = tk.Frame(self.root, bg="white")
@@ -603,10 +603,12 @@ def create_app_class():
         def toggle_custom_data_input_frame(self):
             """切换自定义图像输入框"""
             if self.is_custom_image.get():
-                self.frm_custom_data.pack(pady=5, fill="x", padx=20, before=self.entry_out.master)
+                self.frm_custom_data.pack(pady=5, fill="x", padx=20, before=self.frm_size)
+                self.frm_wm.pack_forget()
                 self.show_useing_custom_image_warning()
             else:
                 self.frm_custom_data.pack_forget()
+                self.frm_wm.pack(pady=5, fill="both", padx=20, before=self.frm_size)
 
         # 当算法版本被切换时
         def on_algorithm_version_change(self, *args):
@@ -659,6 +661,8 @@ def create_app_class():
                     if self.mode.get() == "embed":
                         if self.compatibility_mode.get():
                             self.embedder.embed_watermark_v013(f)
+                        elif self.is_custom_image.get():
+                            self.embedder.embed_watermark_custom_image(f,self.custom_data.get())
                         else:
                             self.embedder.embed_watermark(f)
                     else:
@@ -827,7 +831,7 @@ def create_app_class():
             if status==True:
                 tk.Label(new_qr_window, text="水印提取成功", font=("Arial", 12, "bold")).pack()
             else:
-                tk.Label(new_qr_window, text="水印提取失败，请检查下方是否存在二维码图像", font=("Arial", 12, "bold")).pack()
+                tk.Label(new_qr_window, text="水印提取失败，请检查下方是否存在二维码 或 图像", font=("Arial", 12, "bold")).pack()
             
             # 处理传入的图片
             if images:
@@ -927,7 +931,7 @@ def create_app_class():
             """显示兼容模式信息（不触发输入框显示/隐藏）"""
             from tkinter import messagebox
             if self.compatibility_mode.get():
-                messagebox.showinfo("兼容模式", "已启用v0.1.3兼容模式\n仅嵌入文本水印（抗干扰差！）\n且不能解析新版水印\n仅作为兼容选项，不再推荐使用")
+                messagebox.showwarning("兼容模式", "已启用v0.1.3兼容模式\n仅嵌入文本水印（抗干扰差！）\n且不能解析新版水印\n不能嵌入图像等数据\n仅作为兼容选项，不再推荐使用")
                 if self.enhanced_mode.get():
                     messagebox.showwarning("注意", "v0.1.3兼容模式下\n不可使用增强处理\n不可嵌入自定图像")
                     self.enhanced_mode.set(False)

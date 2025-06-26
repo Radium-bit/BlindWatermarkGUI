@@ -52,6 +52,205 @@ class WatermarkEmbedder:
             messagebox.showerror("错误", f"生成二维码失败: {str(e)}")
             return None
 
+    def process_image_pre_watermark(self, image_path, target_size):
+        """
+        处理水印图像，确保其为 RGB 格式，并将其尺寸调整为目标尺寸。
+        如果图像是 JPG，则会进行色彩空间检查。
+        Args:
+            image_path (str): 水印图像的路径。
+            target_size (int): 目标尺寸（边长）。
+        Returns:
+            PIL.Image.Image or None: 处理后的图像数据，如果处理失败则返回 None。
+        """
+        try:
+            img = Image.open(image_path)
+            # 转换为 RGB 模式，以确保兼容性
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+
+            # 调整图像尺寸
+            # Image.LANCZOS 是高质量的下采样滤镜
+            img = img.resize((target_size, target_size), Image.LANCZOS)
+
+            return img
+        except Exception as e:
+            # 使用 Tkinter 的 messagebox 显示错误
+            self.app.root.after(0, lambda error_msg=e: messagebox.showerror("错误", f"处理水印图片失败: {str(error_msg)}"))
+            return None
+
+
+    def embed_watermark_custom_image(self, filepath, w_filepath):
+        """
+        将自定义图像水印嵌入到主图片中。
+
+        Args:
+            filepath (str): 主图片的文件路径。
+            w_filepath (str): 用作水印的图像文件路径。
+        """
+        def worker():
+            tmp_in = None
+            tmp_out = None
+            temp_img_main = None # 用于主图片临时转换的变量
+            processed_w_filepath = None # 用于处理后的水印图片的临时文件路径
+
+            try:
+                if not os.path.exists(w_filepath):
+                    self.app.root.after(0, lambda: messagebox.showerror("错误", f"水印文件不存在：{w_filepath}\n请检查水印路径是否正确？"))
+                    self.app.root.after(0, self.app.hide_processing_window)
+                    return # 提前退出，不再执行后续操作
+                
+                # 显示处理窗口
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在处理图片，请稍候..."))
+                output_dir = self.app.get_output_dir()
+                os.makedirs(output_dir, exist_ok=True)
+
+                name, ext = os.path.splitext(os.path.basename(filepath))
+                # 读取主图片
+                image = Image.open(filepath)
+                width, height = image.size
+
+                # 检查并转换主图片的 JPG 色彩空间(仅当输出格式为JPG时)
+                if self.app.output_format.get() == "JPG":
+                    if filepath.lower().endswith(('.jpg', '.jpeg')):
+                        # 检查主图片是否需要色彩空间转换
+                        if image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0':
+                            # 启动长时间操作提示
+                            self.app.root.after(0, lambda: self.app.show_processing_window("正在转换主图片色彩空间，请稍候..."))
+                            start_time = time.time()
+                            image = image.convert('RGB')
+                            # 如果转换时间超过1秒，保持提示窗口
+                            if time.time() - start_time > 1:
+                                self.app.root.after(0, lambda: messagebox.showinfo("色彩空间转换", "为确保兼容性，已将主图片色彩空间转换为sRGB 4:2:0"))
+                            else:
+                                self.app.root.after(0, self.app.hide_processing_window)
+
+                # --- 处理 w_filepath (水印图片) ---
+                # 先尝试 128x128 尺寸
+                current_w_target_size = 128
+                processed_w_image = self.process_image_pre_watermark(w_filepath, current_w_target_size)
+                if not processed_w_image:
+                    return # 如果处理失败，直接返回
+
+                # 保存处理后的水印图片到临时文件
+                processed_w_filepath = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False).name
+                processed_w_image.save(processed_w_filepath)
+
+                # 定义所有临时文件变量
+                tmp_in = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
+                tmp_out = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
+
+                # 临时保存转换后的主图片 (仅当需要转换时)
+                if self.app.output_format.get() == "JPG" and filepath.lower().endswith(('.jpg', '.jpeg')) and \
+                    (image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0'):
+                        temp_img_main = os.path.join(os.path.dirname(filepath), "temp_converted_main_image.jpg")
+                        image.save(temp_img_main, "JPEG", subsampling="4:2:0", quality=100)
+                        image = Image.open(temp_img_main)
+                        width, height = image.size # 更新尺寸
+
+                # 保存输入主图片并确保文件关闭，用于 Blind-Watermark 库读取
+                with open(tmp_in, 'wb') as f:
+                    image.save(f)
+
+                # 获取密码
+                pwd = self.app.get_pwd()
+
+                if self.app.enhanced_mode.get():
+                    try:
+                        # 读取临时文件
+                        img = Image.open(tmp_in).convert("RGB") # 读图，转RGB模型
+                        arr = np.array(img).astype(np.float32)  # 避免uint8溢出
+                        print("Useing Enhanced Mode...")
+                        # 生成2D柏林噪声
+                        noise = np.zeros((arr.shape[0], arr.shape[1]), dtype=np.float32)
+                        for i in range(arr.shape[0]):
+                            for j in range(arr.shape[1]):
+                                noise[i][j] = pnoise2(i / 50.0, j / 50.0, octaves=2)
+
+                        # 扩展为3D通道，应用到每个颜色通道
+                        noise_3d = np.repeat(noise[:, :, np.newaxis], 3, axis=2)
+                        arr += noise_3d * 12.8  # 控制噪声强度
+                        arr = np.clip(arr, 0, 255).astype(np.uint8)
+                        # 回写文件
+                        Image.fromarray(arr).save(tmp_in)
+                    except Exception as e:
+                        print(f"噪声处理失败: {e}")
+
+                # 尝试水印嵌入
+                try:
+                    bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
+                    bwm1.read_img(tmp_in) # 读取主图片
+                    bwm1.read_wm(processed_w_filepath) # 读取处理后的水印图片
+                    bwm1.embed(tmp_out) # 嵌入水印
+                except Exception as e:
+                    # 如果首次嵌入失败 (128x128 尺寸)，尝试 64x64 尺寸
+                    if processed_w_filepath and os.path.exists(processed_w_filepath):
+                        os.remove(processed_w_filepath) # 删除之前的临时水印文件
+
+                    current_w_target_size = 64 # 尝试 64x64 尺寸
+                    processed_w_image = self.process_image_pre_watermark(w_filepath, current_w_target_size)
+                    if not processed_w_image:
+                        # 如果 64x64 处理也失败，则报错并返回
+                        self.app.root.after(0, lambda error_msg=e: messagebox.showerror("错误", f"水印图像处理失败: {str(error_msg)}\n请尝试使用更小的水印尺寸"))
+                        return
+
+                    # 保存新的处理后的水印图片到临时文件
+                    processed_w_filepath = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
+                    processed_w_image.save(processed_w_filepath)
+
+                    try:
+                        bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
+                        bwm1.read_img(tmp_in)
+                        bwm1.read_wm(processed_w_filepath) # 使用新的处理后的水印图片
+                        bwm1.embed(tmp_out)
+                    except Exception as e2:
+                        # 如果第二次嵌入也失败，则报错并返回
+                        self.app.root.after(0, lambda: messagebox.showerror("错误", f"水印嵌入失败: {str(e2)}\n请尝试使用更小的水印尺寸"))
+                        return
+
+                wm_len = len(bwm1.wm_bit) # 获取嵌入水印的长度
+                output_ext = ".jpg" if self.app.output_format.get() == "JPG" else ext # 确定输出文件扩展名
+                dst_img = os.path.join(
+                    os.path.dirname(filepath),
+                    f"{name}-Watermark-ws{wm_len}-size{width}x{height}{output_ext}"
+                )
+
+                if self.app.output_format.get() == "JPG":
+                    # 创建 sRGB ICC 配置文件
+                    srgb_profile = ImageCms.createProfile("sRGB")
+                    # 保存带 ICC 配置的 JPG
+                    img_to_save = Image.open(tmp_out).convert('RGB')
+                    img_to_save.save(dst_img, "JPEG", quality=100, subsampling="4:2:0",
+                                    icc_profile=ImageCms.ImageCmsProfile(srgb_profile).tobytes())
+                else:
+                    # 对于非 JPG 格式，直接复制临时输出文件到目标路径
+                    shutil.copy2(tmp_out, dst_img)
+
+                # 确保处理窗口关闭
+                self.app.root.after(0, self.app.hide_processing_window)
+                # 显示成功信息
+                self.app.root.after(0, lambda: messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n水印长度：{wm_len} 尺寸：{width}x{height}"))
+
+            except Exception as e:
+                # 捕获其他未预料的错误并显示
+                self.app.root.after(0, lambda e_val=e: messagebox.showerror("错误", str(e_val)))
+            finally:
+                # 无论成功或失败，最后都隐藏处理窗口
+                self.app.root.after(0, self.app.hide_processing_window)
+                # 清理临时文件
+                for f in [tmp_in, tmp_out, temp_img_main, processed_w_filepath]:
+                    if f and os.path.exists(f):
+                        try:
+                            os.remove(f)
+                            print(f"已清理临时文件: {f}")
+                        except Exception as cleanup_e:
+                            print(f"清理临时文件失败 {f}: {cleanup_e}") # 仅打印清理失败信息
+
+        # 启动工作线程
+        threading.Thread(target=worker, daemon=True).start()
+
+        self.app.hide_processing_window()
+
+
     def embed_watermark(self, filepath):
         def worker():
             try:
