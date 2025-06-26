@@ -387,7 +387,7 @@ class WatermarkExtractor:
                         print(f"RS解码失败: {e}")
                         # 降级到UTF8解码
                         encoding_type = "UTF8"
-                        self.app.root.after(0, lambda: messagebox.showwarning(
+                        self.app.root.after(0, lambda e=e: messagebox.showwarning(
                             "RS解码失败", 
                             f"鲁棒解码失败: {str(e)}\n将尝试简单UTF-8解码"
                         ))
