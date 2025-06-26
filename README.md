@@ -2,6 +2,8 @@
 
 本项目是一个基于 [blind_watermark](https://github.com/guofei9987/blind_watermark) 的图形界面工具，支持图片水印的 **嵌入与提取** 操作，旨在方便非开发者通过拖拽和点击快速使用盲水印功能。
 
+关于v3水印实现流程，详见 [TECH.md](./TECH.md) 目前，v3水印仍有许多不足，为实验性产物，随时可能重构，旨在增强 [blind_watermark](https://github.com/guofei9987/blind_watermark) 的抗干扰能力，欢迎随时提出issue或PR
+
 ## ✨ 功能特性
 
 - ✅ 支持嵌入和提取盲水印（Blind Watermark）
