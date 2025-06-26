@@ -9,5 +9,6 @@ Provides embed and extract functionality for watermarks
 
 from .embed import WatermarkEmbedder
 from .extract import WatermarkExtractor
+from . import dataShielder
 
-__all__ = ['WatermarkEmbedder', 'WatermarkExtractor']
+__all__ = ['WatermarkEmbedder', 'WatermarkExtractor', 'dataShielder']

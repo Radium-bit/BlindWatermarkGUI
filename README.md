@@ -83,7 +83,7 @@
 ### 依赖安装
 
 ```bash
-pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv noise py7zr
+pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv noise py7zr reedsolo crc
 ```
 
 ### 安装 NSIS（用于生成安装版）

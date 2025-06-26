@@ -489,6 +489,8 @@ REQUIRED_IMPORTS = [
     'watermark',
     'watermark.embed',
     'watermark.extract',
+    # 添加 dataShielder 模块
+    'dataShielder'
 ]
 
 a = Analysis(

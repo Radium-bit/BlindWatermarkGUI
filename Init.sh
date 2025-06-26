@@ -45,7 +45,7 @@ echo -e "${BLUE}步骤1: 安装Python依赖包${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo -e "${YELLOW}正在安装依赖包...${NC}"
 
-$PIP_CMD install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv noise py7zr
+$PIP_CMD install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv noise py7zr reedsolo crc
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}错误: 依赖包安装失败${NC}"

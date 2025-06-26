@@ -489,7 +489,7 @@ def create_app_class():
             algorithm_frame.pack(pady=2, fill="x", anchor="nw", padx=20)
             self.algorithm_version.trace_add('write', self.on_algorithm_version_change)
             tk.Label(algorithm_frame, text="算法版本:", bg="white").pack(side="left")
-            tk.Radiobutton(algorithm_frame, text="v3", variable=self.algorithm_version, value=3, bg="white") #先不显示等v3做出来先
+            tk.Radiobutton(algorithm_frame, text="v3", variable=self.algorithm_version, value=3, bg="white").pack(side="left", padx=5) #先不显示等v3做出来先
             tk.Radiobutton(algorithm_frame, text="v2", variable=self.algorithm_version, value=2, bg="white").pack(side="left", padx=5)
             tk.Radiobutton(algorithm_frame, text="v1", variable=self.algorithm_version, value=1, bg="white").pack(side="left", padx=5)
 
@@ -663,11 +663,15 @@ def create_app_class():
                             self.embedder.embed_watermark_v013(f)
                         elif self.is_custom_image.get():
                             self.embedder.embed_watermark_custom_image(f,self.custom_data.get())
+                        elif int(self.algorithm_version.get()) == 3:
+                            self.embedder.embed_watermark_v3(f)
                         else:
                             self.embedder.embed_watermark(f)
                     else:
                         if self.compatibility_mode.get():
                             self.extractor.extract_watermark_v013(f)
+                        elif int(self.algorithm_version.get()) == 3:
+                            self.extractor.extract_watermark_v3(f)
                         else:
                             self.extractor.extract_watermark(f)
                 except Exception as e:
