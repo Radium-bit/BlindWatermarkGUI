@@ -460,9 +460,9 @@ def create_app_class():
             self.is_custom_image = BooleanVar(value=False)
             self.custom_check = Checkbutton(
                 options_frame_up, 
-                text="使用自定图片",
+                text="嵌入自定图片",
                 variable=self.is_custom_image,
-                # command=self.show_useing_custom_image
+                command=self.toggle_custom_data_input_frame
             )
             self.custom_check.pack(anchor='e',pady=(0,2))
             # 兼容性模式
@@ -474,6 +474,7 @@ def create_app_class():
                 options_frame_down, 
                 text="提取显示原图",
                 variable=self.show_orignal_extract_picture,
+                command=self.show_orignal_extract_picture_warning
             )
             self.show_orignal_extract_picture_check.pack(anchor='e')
 
@@ -523,6 +524,15 @@ def create_app_class():
             self.entry_size.insert(0, "")
             self.entry_size.pack(side="left", fill="x", expand=True)
 
+            # 自定义嵌入数据
+            self.frm_custom_data = tk.Frame(self.root, bg="white")
+            tk.Label(self.frm_custom_data, text="自定水印路径（拖放文件到此处）：", bg="white").pack(side="left")
+            self.custom_data = tk.Entry(self.frm_custom_data)
+            self.custom_data.pack(side="left", fill="x", expand=True)
+            # 配置输入框以接受拖放文件
+            self.custom_data.drop_target_register(imported_modules['DND_FILES']) # 注册文件拖放（DND_FILES）
+            self.custom_data.dnd_bind('<<Drop>>', self.on_drop_custom_data)
+
             # 输出目录
             frm_out = tk.Frame(self.root, bg="white")
             frm_out.pack(pady=5, fill="x", padx=20)
@@ -530,7 +540,7 @@ def create_app_class():
             self.entry_out = tk.Entry(frm_out)
             self.entry_out.insert(0, imported_modules['tempfile'].gettempdir())
             self.entry_out.pack(side="left", fill="x", expand=True)
-            
+
             # 重置配置按钮
             frm_reset = tk.Frame(self.root, bg="white")
             frm_reset.pack(pady=5, fill="x", padx=20)
@@ -590,10 +600,20 @@ def create_app_class():
                 # 禁用兼容模式 - 隐藏输入框
                 self.frm_len.pack_forget()
 
+        def toggle_custom_data_input_frame(self):
+            """切换自定义图像输入框"""
+            if self.is_custom_image.get():
+                self.frm_custom_data.pack(pady=5, fill="x", padx=20, before=self.entry_out.master)
+                self.show_useing_custom_image_warning()
+            else:
+                self.frm_custom_data.pack_forget()
+
         # 当算法版本被切换时
         def on_algorithm_version_change(self, *args):
             selected_version = int(self.algorithm_version.get())
             if selected_version == 1:
+                self.is_custom_image.set(False)
+                self.toggle_custom_data_input_frame()
                 self.compatibility_mode.set(True)
                 self.toggle_compatibility_mode()
             elif selected_version == 2:
@@ -651,6 +671,17 @@ def create_app_class():
                     # 确保处理窗口关闭
                     if hasattr(self, 'hide_processing_window'):
                         self.hide_processing_window()
+
+        def on_drop_custom_data(self, event):
+            # 获取拖放的文件路径
+            # event.data 包含拖放的文件路径。
+            # 在某些系统上，它可能被大括号括起来
+            file_path = event.data.strip('{}')
+            # 如果拖放了多个文件，我们只取第一个
+            if ' ' in file_path:
+                file_path = file_path.split(' ')[0]
+            self.custom_data.delete(0, tk.END)
+            self.custom_data.insert(0, file_path)
 
         def get_pwd(self):
             pwd = self.entry_pwd.get().strip()
@@ -898,9 +929,27 @@ def create_app_class():
             if self.compatibility_mode.get():
                 messagebox.showinfo("兼容模式", "已启用v0.1.3兼容模式\n仅嵌入文本水印（抗干扰差！）\n且不能解析新版水印\n仅作为兼容选项，不再推荐使用")
                 if self.enhanced_mode.get():
-                    messagebox.showwarning("注意", "v0.1.3兼容模式下\n不可使用增强处理")
+                    messagebox.showwarning("注意", "v0.1.3兼容模式下\n不可使用增强处理\n不可嵌入自定图像")
                     self.enhanced_mode.set(False)
-    
+                    self.is_custom_image.set(False)
+                    self.show_orignal_extract_picture.set(False)
+
+        def show_useing_custom_image_warning(self):
+            from tkinter import messagebox
+            if self.is_custom_image.get():
+                if self.compatibility_mode.get():
+                    messagebox.showwarning("注意", "v0.1.3兼容模式下\n无法嵌入自定图像")
+                    self.is_custom_image.set(False)
+                else:
+                    messagebox.showinfo("自定义嵌入","已启用自定义嵌入图像模式\n嵌入的图像需约为128x128的内容\n若不符合程序会强制转换！\n请确保图像在低分辨率下可分辨！")
+
+        def show_orignal_extract_picture_warning(self):
+            from tkinter import messagebox
+            if self.show_orignal_extract_picture.get():
+                if self.compatibility_mode.get():
+                    messagebox.showwarning("注意", "v0.1.3兼容模式下\n无法嵌入图像数据")
+                    self.show_orignal_extract_picture.set(False)
+
     return App
 
 # 抑制QReader的特定编码解析警告
