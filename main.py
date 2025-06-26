@@ -945,7 +945,7 @@ def create_app_class():
                     messagebox.showwarning("注意", "v0.1.3兼容模式下\n无法嵌入自定图像")
                     self.is_custom_image.set(False)
                 else:
-                    messagebox.showinfo("自定义嵌入","已启用自定义嵌入图像模式\n嵌入的图像需约为128x128的内容\n若不符合程序会强制转换！\n请确保图像在低分辨率下可分辨！")
+                    messagebox.showinfo("自定义嵌入","已启用自定义嵌入图像模式\n嵌入的图像需约为128x128的内容，且转为灰度图像\n若不符合程序会强制转换！（受限于基础库）\n【建议使用对比明显的黑白水印图】\n请确保特征在低分辨率下可清晰分辨！")
 
         def show_orignal_extract_picture_warning(self):
             from tkinter import messagebox
