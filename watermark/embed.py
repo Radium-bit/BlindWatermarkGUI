@@ -570,11 +570,12 @@ class WatermarkEmbedder:
                     bwm_temp = WaterMark(password_img=int(pwd), password_wm=int(pwd))
                     bwm_temp.read_img(tmp_in)
                     
-                    # 假设WaterMark有一个方法可以获取可用容量，如果没有则使用估算
+                    # WaterMarkCore有一个方法可以获取可用容量，如果没有则使用估算
                     # 这里需要根据实际的WaterMark类实现来调整
                     try:
                         # 尝试获取实际可用容量
-                        available_capacity = getattr(bwm_temp, 'block_num', None)
+                        bwm_temp.bwm_core.init_block_index()
+                        available_capacity = bwm_temp.bwm_core.block_num
                         if available_capacity is None:
                             # 如果没有block_num属性，进行估算
                             # 通常水印容量与图片大小相关
