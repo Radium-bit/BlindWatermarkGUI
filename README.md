@@ -1,8 +1,26 @@
-# Blind-Watermark GUI 工具
+## Blind-Watermark GUI
 
-本项目是一个基于 [blind_watermark](https://github.com/guofei9987/blind_watermark) 的图形界面工具，支持图片水印的 **嵌入与提取** 操作，旨在方便非开发者通过拖拽和点击快速使用盲水印功能。
+还在为图片版权烦恼？这款盲水印工具帮你轻松维权！
 
-关于v3水印实现流程，详见 [TECH.md](./TECH.md) 目前，v3水印仍有许多不足，为实验性产物，随时可能重构，旨在增强 [blind_watermark](https://github.com/guofei9987/blind_watermark) 的抗干扰能力，欢迎随时提出issue或PR
+你是否曾因原创图片被盗用而束手无策，甚至反被恶意索赔？为了解决图片版权的困扰，我们为你带来了这款基于 [blind\_watermark](https://github.com/guofei9987/blind_watermark) 的**图形界面工具**。
+
+### 什么是盲水印？
+
+**盲水印技术**能将你的专属水印悄无声息地嵌入图片之中。处理后的图片在视觉上与原图几乎无异，但凭借你的密钥，我们就能轻松提取出隐藏的水印，为你**提供有力的版权辅助证据**！
+
+### 本工具的优势
+
+这款工具专为**非开发者**设计，操作极其简单。你只需通过**拖拽和点击**，即可快速实现图片水印的**嵌入与提取**。告别复杂的代码，轻松保护你的图片版权！
+
+-----
+
+### 关于 v3 水印
+
+目前，本项目正在积极探索和实现 **v3 水印技术**，旨在显著增强 [blind\_watermark](https://github.com/guofei9987/blind_watermark) 的**抗干扰能力**。
+
+**请注意：** v3 水印仍处于**实验性阶段**，功能尚未完全稳定，未来可能会进行重构。详细的实现流程，欢迎查阅 [TECH.md](https://www.google.com/search?q=./TECH.md)。我们非常欢迎大家提出 Issue 或 Pull Request，共同完善这项技术！
+
+-----
 
 ## ✨ 功能特性
 
