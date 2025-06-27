@@ -18,7 +18,7 @@
 
 目前，本项目正在积极探索和实现 **v3 水印技术**，旨在显著增强 [blind\_watermark](https://github.com/guofei9987/blind_watermark) 的**抗干扰能力**。
 
-**请注意：** v3 水印仍处于**实验性阶段**，功能尚未完全稳定，未来可能会进行重构。详细的实现流程，欢迎查阅 [TECH.md](https://www.google.com/search?q=./TECH.md)。我们非常欢迎大家提出 Issue 或 Pull Request，共同完善这项技术！
+**请注意：** v3 水印仍处于**实验性阶段**，功能尚未完全稳定，未来可能会进行重构。详细的实现流程，欢迎查阅 [TECH.md](./TECH.md)。我们非常欢迎大家提出 Issue 或 Pull Request，共同完善这项技术！
 
 -----
 
