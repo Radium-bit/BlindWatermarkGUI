@@ -831,7 +831,7 @@ def create_app_class():
             if status==True:
                 tk.Label(new_qr_window, text="水印提取成功", font=("Arial", 12, "bold")).pack()
             else:
-                tk.Label(new_qr_window, text="水印提取失败，请检查下方是否存在二维码 或 图像", font=("Arial", 12, "bold")).pack()
+                tk.Label(new_qr_window, text="水印未提取到文本，请检查是否存在二维码 或 图像", font=("Arial", 12, "bold")).pack()
             
             # 处理传入的图片
             if images:
