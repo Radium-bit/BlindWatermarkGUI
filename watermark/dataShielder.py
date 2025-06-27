@@ -20,7 +20,7 @@ from reedsolo import RSCodec
 
 def crc16_ccitt(data: bytes) -> int:
     """
-    计算CRC16-CCITT校验码（修复版）
+    计算CRC16-CCITT校验码
     使用标准的CRC16-CCITT-FALSE（初始值0xFFFF）
     """
     crc = 0xFFFF
