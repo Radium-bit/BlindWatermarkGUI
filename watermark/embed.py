@@ -251,6 +251,164 @@ class WatermarkEmbedder:
         self.app.hide_processing_window()
 
 
+    def embed_watermark_custom_binary(self, filepath, w_filepath):
+        """
+        将任意二进制文件作为水印嵌入到主图片中。
+
+        Args:
+            filepath (str): 主图片的文件路径。
+            w_filepath (str): 用作水印的二进制文件路径。
+        """
+        def worker():
+            tmp_in = None
+            tmp_out = None
+            temp_img_main = None  # 用于主图片临时转换的变量
+            tmp_watermark_file = None  # 用于复制水印文件的临时路径
+
+            try:
+                if not os.path.exists(w_filepath):
+                    self.app.root.after(0, lambda: messagebox.showerror("错误", f"水印文件不存在：{w_filepath}\n请检查水印路径是否正确？"))
+                    self.app.root.after(0, self.app.hide_processing_window)
+                    return  # Exit early, do not proceed with further operations
+                
+                # Show processing window
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在处理图片，请稍候..."))
+                output_dir = self.app.get_output_dir()
+                os.makedirs(output_dir, exist_ok=True)
+
+                name, ext = os.path.splitext(os.path.basename(filepath))
+                # Read the main image
+                image = Image.open(filepath)
+                width, height = image.size
+
+                # Check and convert JPG color space of the main image (only if output format is JPG)
+                if self.app.output_format.get() == "JPG":
+                    if filepath.lower().endswith(('.jpg', '.jpeg')):
+                        # Check if the main image needs color space conversion
+                        if image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0':
+                            # Start long-running operation prompt
+                            self.app.root.after(0, lambda: self.app.show_processing_window("正在转换主图片色彩空间，请稍候..."))
+                            start_time = time.time()
+                            image = image.convert('RGB')
+                            # If conversion time exceeds 1 second, keep the prompt window
+                            if time.time() - start_time > 1:
+                                self.app.root.after(0, lambda: messagebox.showinfo("色彩空间转换", "为确保兼容性，已将主图片色彩空间转换为sRGB 4:2:0"))
+                            else:
+                                self.app.root.after(0, self.app.hide_processing_window)
+
+                # --- Copy watermark file to temporary directory (to avoid Chinese path issues) ---
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在处理水印文件，请稍候..."))
+                _, w_ext = os.path.splitext(w_filepath)
+                tmp_watermark_file = tempfile.NamedTemporaryFile(suffix=w_ext, delete=False).name
+                shutil.copy2(w_filepath, tmp_watermark_file)
+
+                # Define all temporary file variables
+                tmp_in = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
+                tmp_out = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
+
+                # Temporarily save the converted main image (only if conversion is needed)
+                if self.app.output_format.get() == "JPG" and filepath.lower().endswith(('.jpg', '.jpeg')) and \
+                    (image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0'):
+                        temp_img_main = os.path.join(os.path.dirname(filepath), "temp_converted_main_image.jpg")
+                        image.save(temp_img_main, "JPEG", subsampling="4:2:0", quality=100)
+                        image = Image.open(temp_img_main)
+                        width, height = image.size  # Update dimensions
+
+                # Save the input main image and ensure the file is closed, for Blind-Watermark library to read
+                with open(tmp_in, 'wb') as f:
+                    image.save(f)
+
+                # Get password
+                pwd = self.app.get_pwd()
+
+                if self.app.enhanced_mode.get():
+                    try:
+                        # Read temporary file
+                        img = Image.open(tmp_in).convert("RGB")  # Read image, convert to RGB model
+                        arr = np.array(img).astype(np.float32)  # Avoid uint8 overflow
+                        print("Using Enhanced Mode...")
+                        # Generate 2D Perlin noise
+                        noise = np.zeros((arr.shape[0], arr.shape[1]), dtype=np.float32)
+                        for i in range(arr.shape[0]):
+                            for j in range(arr.shape[1]):
+                                noise[i][j] = pnoise2(i / 50.0, j / 50.0, octaves=2)
+
+                        # Extend to 3D channels, apply to each color channel
+                        noise_3d = np.repeat(noise[:, :, np.newaxis], 3, axis=2)
+                        arr += noise_3d * 12.8  # Control noise intensity
+                        arr = np.clip(arr, 0, 255).astype(np.uint8)
+                        # Write back to file
+                        Image.fromarray(arr).save(tmp_in)
+                    except Exception as e:
+                        print(f"Noise processing failed: {e}")
+
+                # Read binary watermark file and convert to bit array
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在读取二进制水印文件，请稍候..."))
+                with open(tmp_watermark_file, 'rb') as f:
+                    binary_data = f.read()
+                
+                # Convert binary data to bit array
+                bit_array = []
+                for byte in binary_data:
+                    for i in range(8):
+                        bit_array.append(bool(byte & (1 << (7 - i))))
+
+                # Watermark embedding
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在嵌入水印，请稍候..."))
+                try:
+                    bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
+                    bwm1.read_img(tmp_in)  # Read main image
+                    bwm1.read_wm(bit_array, mode='bit')  # Read binary bit array
+                    bwm1.embed(tmp_out)  # Embed watermark
+                except Exception as e:
+                    # If embedding fails, report error and return
+                    self.app.root.after(0, lambda error_msg=e: messagebox.showerror("错误", f"水印嵌入失败: {str(error_msg)}\n请尝试使用更小的二进制文件或更大的主图片"))
+                    return
+
+                wm_len = len(bit_array)  # Get the length of the embedded watermark
+                output_ext = ".jpg" if self.app.output_format.get() == "JPG" else ext  # Determine output file extension
+                dst_img = os.path.join(
+                    os.path.dirname(filepath),
+                    f"{name}-Watermark-ws{wm_len}-size{width}x{height}{output_ext}"
+                )
+
+                if self.app.output_format.get() == "JPG":
+                    # Create sRGB ICC profile
+                    srgb_profile = ImageCms.createProfile("sRGB")
+                    # Save JPG with ICC profile
+                    img_to_save = Image.open(tmp_out).convert('RGB')
+                    img_to_save.save(dst_img, "JPEG", quality=100, subsampling="4:2:0",
+                                    icc_profile=ImageCms.ImageCmsProfile(srgb_profile).tobytes())
+                else:
+                    # For non-JPG formats, directly copy the temporary output file to the target path
+                    shutil.copy2(tmp_out, dst_img)
+
+                # Ensure processing window is closed
+                self.app.root.after(0, self.app.hide_processing_window)
+                # Show success message
+                self.app.root.after(0, lambda: messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n水印长度：{wm_len} bits 尺寸：{width}x{height}\n原始文件大小：{len(binary_data)} bytes"))
+
+            except Exception as e:
+                # Catch other unforeseen errors and display them
+                self.app.root.after(0, lambda e_val=e: messagebox.showerror("错误", str(e_val)))
+            finally:
+                # Regardless of success or failure, hide the processing window at the end
+                self.app.root.after(0, self.app.hide_processing_window)
+                # Clean up temporary files
+                for f in [tmp_in, tmp_out, temp_img_main, tmp_watermark_file]:
+                    if f and os.path.exists(f):
+                        try:
+                            os.remove(f)
+                            print(f"已清理临时文件: {f}")
+                        except Exception as cleanup_e:
+                            print(f"清理临时文件失败 {f}: {cleanup_e}")  # Only print cleanup failure info
+
+        # Start worker thread
+        threading.Thread(target=worker, daemon=True).start()
+
+        self.app.hide_processing_window()
+
+
     def embed_watermark(self, filepath):
         def worker():
             try:
