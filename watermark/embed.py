@@ -408,6 +408,94 @@ class WatermarkEmbedder:
 
         self.app.hide_processing_window()
 
+    def confirm_watermark_embedding(self, binary_data, available_capacity, safety_margin=0.90):
+        """
+        在嵌入水印前检查容量并请求用户确认
+    
+        Args:
+            binary_data: 要嵌入的二进制数据
+            available_capacity: 可用容量（比特数）
+            safety_margin: 安全边际（默认0.90，即90%）
+    
+        Returns:
+            tuple: (是否继续, 适配后的数据)
+        """
+        from .dataShielder import adapt_to_watermark_capacity_binary, estimate_required_capacity
+        
+        # 计算数据大小（字节）
+        binary_data_size = len(binary_data)
+        
+        try:
+            # 估算实际需要的容量（比特）
+            required_bits, _ = estimate_required_capacity(binary_data)
+            required_bytes = (required_bits + 7) // 8  # 转换为字节显示
+            
+            # 可用容量转换为字节显示
+            available_bytes = available_capacity // 8
+            
+            # 如果需要的容量超过可用容量，显示确认对话框
+            if required_bits > available_capacity:
+                # 转换为KB显示
+                data_size_kb = binary_data_size / 1024
+                required_kb = required_bytes / 1024
+                available_kb = available_bytes / 1024
+                
+                # 计算截断后的容量
+                safe_capacity_bits = int(available_capacity * safety_margin)
+                safe_capacity_bytes = safe_capacity_bits // 8
+                safe_capacity_kb = safe_capacity_bytes / 1024
+            
+                # 创建确认消息
+                message = (
+                    f"水印数据容量不足！\n\n"
+                    f"原始数据大小: {data_size_kb:.2f} KB\n"
+                    f"编码后需要容量: {required_kb:.2f} KB\n"
+                    f"图像可用容量: {available_kb:.2f} KB\n"
+                    f"安全容量限制: {safe_capacity_kb:.2f} KB\n\n"
+                    f"继续嵌入将自动截断数据到安全容量范围内，\n"
+                    f"可能会丢失部分数据内容。\n\n"
+                    f"是否继续？"
+                )
+            
+                # 显示确认对话框
+                result = messagebox.askyesno("容量不足确认", message)
+            
+                if not result:
+                    return False, None
+                    
+            else:
+                print(f"容量检查通过：需要 {required_bits} 比特，可用 {available_capacity} 比特")
+        
+            # 如果用户确认或容量足够，调用适配函数
+            bit_array = adapt_to_watermark_capacity_binary(
+                binary_data,
+                available_capacity,
+                safety_margin=safety_margin  # 确保参数名正确
+            )
+        
+            return True, bit_array
+            
+        except Exception as e:
+            print(f"容量确认过程出错: {e}")
+            # 显示错误信息
+            error_message = f"容量检查失败: {str(e)}\n\n是否尝试强制嵌入？"
+            result = messagebox.askyesno("容量检查错误", error_message)
+            
+            if not result:
+                return False, None
+                
+            # 尝试强制嵌入
+            try:
+                bit_array = adapt_to_watermark_capacity_binary(
+                    binary_data,
+                    available_capacity,
+                    safety_margin=safety_margin
+                )
+                return True, bit_array
+            except Exception as force_error:
+                messagebox.showerror("嵌入失败", f"强制嵌入也失败了: {str(force_error)}")
+                return False, None
+
     def embed_watermark_custom_binary_with_rc1(self, filepath, w_filepath, use_rc1=True):
         def worker():
             tmp_in = None
@@ -482,13 +570,14 @@ class WatermarkEmbedder:
                         Image.fromarray(arr).save(tmp_in)
                     except Exception as e:
                         print(f"Noise processing failed: {e}")
+                
+                # 读取二进制水印文件
+                with open(tmp_watermark_file, 'rb') as f:
+                    binary_data = f.read()
+
                 # ========== RC1纠错编码处理开始 ==========
                 if use_rc1_encoding:
                     self.app.root.after(0, lambda: self.app.show_processing_window("正在使用RC1纠错编码处理水印文件，请稍候..."))
-
-                    # 读取二进制水印文件
-                    with open(tmp_watermark_file, 'rb') as f:
-                        binary_data = f.read()
 
                     # 创建WaterMark实例来获取精确的可用容量
                     self.app.root.after(0, lambda: self.app.show_processing_window("正在计算图像可用容量，请稍候..."))
@@ -519,47 +608,58 @@ class WatermarkEmbedder:
                         capacity_method = "基本估算"
                         print(f"使用基本估算容量: {available_capacity} 比特")
 
-                    # 获取RC1编码统计信息
+                    # 获取RC1编码统计信息并进行容量确认
                     try:
                         from .dataShielder import get_encoding_stats, adapt_to_watermark_capacity, print_encoding_report
 
                         # 打印编码前的报告
                         print_encoding_report(binary_data)
 
-                        # 使用RC1编码器处理数据，自动适配图像容量
-                        bit_array = adapt_to_watermark_capacity(
+                        # 先进行容量确认，然后使用RC1编码器处理数据
+                        continue_embedding, bit_array = self.confirm_watermark_embedding(
                             binary_data,
                             available_capacity,
                             safety_margin=0.90  # 使用90%的安全边际
                         )
 
-                        wm_len = len(bit_array)
-                        compression_info = f"RC1编码"
+                        if continue_embedding:
+                            # 用户确认继续，使用返回的适配数据
+                            wm_len = len(bit_array)
+                            compression_info = f"RC1编码"
+                            print(f"RC1编码后比特长度: {wm_len}")
+                            if 'available_capacity' in locals():
+                                print(f"容量利用率: {(wm_len/available_capacity)*100:.1f}%")
+                        else:
+                            # 用户取消操作
+                            print("用户取消了水印嵌入操作")
+                            self.app.root.after(0, lambda: messagebox.showinfo("操作取消", "水印嵌入操作已取消"))
+                            self.app.root.after(0, self.app.hide_processing_window)
+                            return
 
-                        print(f"RC1编码后比特长度: {wm_len}")
-                        if 'available_capacity' in locals():
-                            print(f"容量利用率: {(wm_len/available_capacity)*100:.1f}%")
+                    except ImportError as import_error:
+                        # 如果RC1编码器不可用，直接报错退出
+                        error_msg = f"RC1编码器不可用: {import_error}\n\n由于原始编码方法不可靠，无法继续嵌入。\n请确保RC1编码模块正确安装。"
+                        print(f"错误：{error_msg}")
+                        self.app.root.after(0, lambda: messagebox.showerror("编码器不可用", error_msg))
+                        self.app.root.after(0, self.app.hide_processing_window)
+                        return
+                    except Exception as rc1_error:
+                        # RC1编码过程中的其他错误，直接报错退出
+                        error_msg = f"RC1编码失败: {str(rc1_error)}\n\n由于原始编码方法不可靠，无法继续嵌入。\n请检查水印文件或尝试使用更大的图片。"
+                        print(f"RC1编码过程出错: {rc1_error}")
+                        self.app.root.after(0, lambda: messagebox.showerror("编码失败", error_msg))
+                        self.app.root.after(0, self.app.hide_processing_window)
+                        return
 
-                    except ImportError:
-                        # 如果RC1编码器不可用，回退到原始方法
-                        print("警告：RC1编码器不可用，使用原始编码方法")
-                        use_rc1_encoding = False
-
-                if not use_rc1_encoding:
-                    # 原始方法：直接将二进制数据转换为比特数组
-                    self.app.root.after(0, lambda: self.app.show_processing_window("正在读取二进制水印文件，请稍候..."))
-                    with open(tmp_watermark_file, 'rb') as f:
-                        binary_data = f.read()
-
-                    # Convert binary data to bit array
-                    bit_array = []
-                    for byte in binary_data:
-                        for i in range(8):
-                            bit_array.append(bool(byte & (1 << (7 - i))))
-
-                    wm_len = len(bit_array)
-                    compression_info = f"原始编码"
+                else:
+                    # 如果不使用RC1编码，直接报错
+                    error_msg = "原始编码方法不可靠，请启用RC1编码模式进行水印嵌入。"
+                    print(f"错误：{error_msg}")
+                    self.app.root.after(0, lambda: messagebox.showerror("编码模式错误", error_msg))
+                    self.app.root.after(0, self.app.hide_processing_window)
+                    return
                 # ========== RC1纠错编码处理结束 ==========
+                
                 # Watermark embedding
                 self.app.root.after(0, lambda: self.app.show_processing_window("正在嵌入水印，请稍候..."))
                 try:
@@ -571,6 +671,7 @@ class WatermarkEmbedder:
                     # If embedding fails, report error and return
                     self.app.root.after(0, lambda error_msg=e: messagebox.showerror("错误", f"水印嵌入失败: {str(error_msg)}\n请尝试使用更小的二进制文件或更大的主图片"))
                     return
+                
                 output_ext = ".jpg" if self.app.output_format.get() == "JPG" else ext  # Determine output file extension
 
                 # 修改输出文件名，包含编码信息
@@ -597,8 +698,20 @@ class WatermarkEmbedder:
                 # 计算容量利用率
                 capacity_utilization = (wm_len / available_capacity) * 100 if 'available_capacity' in locals() and available_capacity > 0 else 0
 
-                success_message = f"""嵌入成功！输出文件：{dst_img}编码信息：\n• 编码方式：{compression_info}\n• 原始数据：{original_size} 字节\n• 水印长度：{wm_len} 比特\n• 图像尺寸：{width}x{height}\n• 容量利用率：{capacity_utilization:.1f}%\n提示：{'使用RC1纠错编码可提供更好的抗噪性能' if use_rc1_encoding else '建议使用RC1编码以获得更好的鲁棒性'}"""
+                success_message = f"""嵌入成功！
+    输出文件：{dst_img}
+
+    编码信息：
+    • 编码方式：{compression_info}
+    • 原始数据：{original_size} 字节
+    • 水印长度：{wm_len} 比特
+    • 图像尺寸：{width}x{height}
+    • 容量利用率：{capacity_utilization:.1f}%
+
+    提示：{'使用RC1纠错编码可提供更好的抗噪性能' if use_rc1_encoding else '建议使用RC1编码以获得更好的鲁棒性'}"""
+                
                 self.app.root.after(0, lambda: messagebox.showinfo("嵌入成功", success_message))
+                
             except Exception as e:
                 # Catch other unforeseen errors and display them
                 self.app.root.after(0, lambda e_val=e: messagebox.showerror("错误", str(e_val)))
@@ -850,7 +963,7 @@ class WatermarkEmbedder:
                 self.app.root.after(0, self.app.hide_processing_window)
                 self.app.root.after(0, lambda: messagebox.showinfo("嵌入成功", f"输出文件：\n{dst_img}\n\n【旧版水印！请完善保存以下内容！】\n水印长度：{wm_len} 尺寸：{width}x{height}"))
             except Exception as e:
-                self.app.root.after(0, lambda: messagebox.showerror("错误", str(e)))
+                self.app.root.after(0, lambda e=e: messagebox.showerror("错误", str(e)))
             finally:
                 self.app.root.after(0, self.app.hide_processing_window)
                 for f in [tmp_in, tmp_out]:
