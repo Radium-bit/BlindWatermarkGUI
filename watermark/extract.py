@@ -21,7 +21,7 @@ class WatermarkExtractor:
         def worker():
             try:
                 self.app.root.after(0, lambda: self.app.show_processing_window("正在提取水印，请稍候..."))
-                
+                basename = os.path.basename(filepath)
                 # 创建临时文件
                 tmp_in = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name
                 tmp_out = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name
@@ -30,6 +30,15 @@ class WatermarkExtractor:
                 img = Image.open(filepath)
                 # 如果目标尺寸不为None，则调整图片大小，常用于提取尺寸已被更改的图像
                 target_size = self.app.get_target_size()
+                if target_size is None:
+                    m = re.search(r"size(\d+)x(\d+)", basename)
+                    if not m: 
+                        result = messagebox.askyesno("注意","文件名中未找到 size(如 size800x600)\n可取消后手动输入或改名\n\n或者继续？（使用当前图像的长宽）")
+                        if not result:
+                            if os.path.exists(tmp_in): os.remove(tmp_out)
+                            raise ValueError("用户取消操作，请手动输入原图长宽")
+                    target_size = (int(m.group(1)), int(m.group(2))) if m else None
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在提取水印，请稍候..."))
                 if target_size is not None:
                     if img.size != target_size:
                         print("Enter Resize Brench")
@@ -269,6 +278,7 @@ class WatermarkExtractor:
             def worker():
                 tmp_in = None
                 tmp_out = None
+                basename = os.path.basename(filepath)
                 temp_img_main = None
                 use_rc1=use_rc1_flag
                 try:
@@ -282,6 +292,21 @@ class WatermarkExtractor:
                     
                     # Read the watermarked image
                     image = Image.open(filepath)
+                    # 如果目标尺寸不为None，则调整图片大小，常用于提取尺寸已被更改的图像
+                    target_size = self.app.get_target_size()
+                    if target_size is None:
+                        m = re.search(r"size(\d+)x(\d+)", basename)
+                        if not m: 
+                            result = messagebox.askyesno("注意","文件名中未找到 size(如 size800x600)\n可取消后手动输入或改名\n\n或者继续？（使用当前图像的长宽）")
+                            if not result:
+                                raise ValueError("用户取消操作，请手动输入原图长宽")
+                        target_size = (int(m.group(1)), int(m.group(2))) if m else None
+                    self.app.root.after(0, lambda: self.app.show_processing_window("正在读取图片，请稍候..."))
+                    if target_size is not None:
+                        if image.size != target_size:
+                            print("Enter Resize Brench")
+                            image = image.resize(target_size, Image.LANCZOS)
+                            
                     width, height = image.size
                     name, ext = os.path.splitext(os.path.basename(filepath))
                     
