@@ -6,6 +6,7 @@ import os
 import tempfile
 import threading
 import re
+import time
 from PIL import Image, ImageEnhance, ImageFilter
 import numpy as np
 from blind_watermark import WaterMark
@@ -263,6 +264,261 @@ class WatermarkExtractor:
                 self.app.root.after(0, self.app.hide_processing_window)
                 
         threading.Thread(target=worker).start()
+
+    def extract_watermark_bit_advanced_with_rc1(self, filepath, use_rc1_flag=True):
+            def worker():
+                tmp_in = None
+                tmp_out = None
+                temp_img_main = None
+                use_rc1=use_rc1_flag
+                try:
+                    if not os.path.exists(filepath):
+                        self.app.root.after(0, lambda: messagebox.showerror("错误", f"图片文件不存在：{filepath}\n请检查文件路径是否正确？"))
+                        self.app.root.after(0, self.app.hide_processing_window)
+                        return
+                    
+                    # Show processing window
+                    self.app.root.after(0, lambda: self.app.show_processing_window("正在读取图片，请稍候..."))
+                    
+                    # Read the watermarked image
+                    image = Image.open(filepath)
+                    width, height = image.size
+                    name, ext = os.path.splitext(os.path.basename(filepath))
+                    
+                    # Create temporary file for processing
+                    tmp_in = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
+                    
+                    # Save the image temporarily (with conversion if needed)
+                    if filepath.lower().endswith(('.jpg', '.jpeg')) and \
+                            (image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0'):
+                        temp_img_main = os.path.join(os.path.dirname(filepath), "temp_converted_main_image.jpg")
+                        image.save(temp_img_main, "JPEG", subsampling="4:2:0", quality=100)
+                        image = Image.open(temp_img_main)
+                        width, height = image.size
+                    
+                    # Save the input image for blind-watermark library
+                    with open(tmp_in, 'wb') as f:
+                        image.save(f)
+                    
+                    # Get password
+                    pwd = self.app.get_pwd()
+                    
+                    # Extract watermark bits
+                    self.app.root.after(0, lambda: self.app.show_processing_window("正在提取水印，请稍候..."))
+                    
+                    try:
+                        # Create WaterMark instance for extraction
+                        bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
+                        
+                        # Extract watermark length from filename if available
+                        wm_len = None
+                        if '-ws' in name:
+                            try:
+                                ws_part = name.split('-ws')[1].split('-')[0]
+                                wm_len = int(ws_part)
+                                print(f"从文件名检测到水印长度: {wm_len} 比特")
+                            except:
+                                print("无法从文件名获取水印长度，将尝试自动检测")
+                        
+                        # Extract watermark
+                        wm_bits = bwm1.extract(tmp_in, wm_shape=wm_len, mode='bit')
+                        
+                        # Convert watermark bits to boolean list
+                        bit_array = []
+                        for bit in wm_bits:
+                            bit_array.append(bool(bit))
+                        
+                        print(f"提取的比特流长度: {len(bit_array)} 比特")
+                        
+                    except Exception as e:
+                        self.app.root.after(0, lambda error_msg=e: messagebox.showerror("错误", f"水印提取失败: {str(error_msg)}\n请确保图片包含有效水印"))
+                        return
+                    
+                    # Process extracted bits based on encoding type
+                    if use_rc1:
+                        self.app.root.after(0, lambda: self.app.show_processing_window("正在使用RC1纠错解码处理水印数据，请稍候..."))
+                        
+                        try:
+                            from .dataShielder import decode_watermark_to_binary, decode_watermark_to_string
+                            
+                            # Decode using RC1 decoder
+                            binary_data, stats = decode_watermark_to_binary(bit_array)
+                            
+                            if binary_data is None:
+                                # Try with different parameters or without interleaving
+                                print("标准RC1解码失败，尝试不同的参数...")
+                                binary_data, stats = decode_watermark_to_binary(bit_array, interleave_depth=1)
+                            
+                            if binary_data is None:
+                                self.app.root.after(0, lambda: messagebox.showerror("错误", 
+                                    f"RC1解码失败\n"
+                                    f"找到的数据包: {stats.get('total_packets_found', 0)}\n"
+                                    f"有效数据包: {stats.get('valid_packets', 0)}\n"
+                                    f"请确保水印是使用RC1编码嵌入的"))
+                                return
+                            
+                            decoding_info = "RC1解码"
+                            
+                            # Print decoding statistics
+                            print(f"RC1解码统计:")
+                            print(f"  找到的数据包: {stats['total_packets_found']}")
+                            print(f"  有效数据包: {stats['valid_packets']}")
+                            print(f"  纠正的错误: {stats['total_errors_corrected']} 字节")
+                            print(f"  恢复的分片: {len(stats['chunks_recovered'])}")
+                            
+                        except ImportError:
+                            print("警告：RC1解码器不可用，回退到原始方法")
+                            use_rc1 = False
+                    
+                    if not use_rc1:
+                        # Original method: directly convert bit array to binary data
+                        self.app.root.after(0, lambda: self.app.show_processing_window("正在将比特流转换为二进制数据，请稍候..."))
+                        
+                        # Convert bit array to bytes
+                        binary_data = bytearray()
+                        for i in range(0, len(bit_array), 8):
+                            if i + 8 <= len(bit_array):
+                                byte_val = 0
+                                for j in range(8):
+                                    if bit_array[i + j]:
+                                        byte_val |= (1 << (7 - j))
+                                binary_data.append(byte_val)
+                        
+                        binary_data = bytes(binary_data)
+                        decoding_info = "原始解码"
+                        stats = {'valid_packets': 0, 'total_packets_found': 0}
+                    
+                    # Determine output filename and extension
+                    output_dir = self.app.get_output_dir()
+                    os.makedirs(output_dir, exist_ok=True)
+                    
+                    # Try to detect file type from binary data
+                    file_ext = self.detect_file_type(binary_data)
+                    if file_ext is None:
+                        # Ask user for file extension
+                        self.app.root.after(0, self.app.hide_processing_window)
+                        
+                        # Create a simple dialog to get file extension
+                        from tkinter import simpledialog
+                        file_ext = self.app.root.after(0, lambda: simpledialog.askstring(
+                            "文件类型", 
+                            "无法自动检测文件类型。\n请输入文件扩展名（例如: txt, pdf, jpg, exe）：",
+                            parent=self.app.root
+                        ))
+                        
+                        if not file_ext:
+                            file_ext = "bin"
+                        elif not file_ext.startswith('.'):
+                            file_ext = '.' + file_ext
+                        
+                        self.app.root.after(0, lambda: self.app.show_processing_window("正在保存文件，请稍候..."))
+                    
+                    # Generate output filename
+                    encoding_suffix = "-RC1" if use_rc1 else "-RAW"
+                    output_filename = f"{name}-Extracted{encoding_suffix}{file_ext}"
+                    output_path = os.path.join(os.path.dirname(filepath), output_filename)
+                    
+                    # Save the extracted binary data
+                    with open(output_path, 'wb') as f:
+                        f.write(binary_data)
+                    
+                    # Ensure processing window is closed
+                    self.app.root.after(0, self.app.hide_processing_window)
+                    
+                    # Show success message with detailed information
+                    file_size = len(binary_data)
+                    success_message = f"""提取成功！输出文件：{output_path}
+                    
+    解码信息：
+    • 解码方式：{decoding_info}
+    • 提取的数据大小：{file_size} 字节
+    • 文件类型：{file_ext}
+    • 图像尺寸：{width}x{height}
+    • 比特流长度：{len(bit_array)} 比特"""
+                    
+                    if use_rc1 and stats:
+                        success_message += f"""
+    • 有效数据包：{stats['valid_packets']}/{stats['total_packets_found']}
+    • 纠正的错误：{stats.get('total_errors_corrected', 0)} 字节"""
+                    
+                    self.app.root.after(0, lambda: messagebox.showinfo("提取成功", success_message))
+                    
+                except Exception as e:
+                    # Catch other unforeseen errors and display them
+                    self.app.root.after(0, lambda e_val=e: messagebox.showerror("错误", str(e_val)))
+                    import traceback
+                    traceback.print_exc()
+                finally:
+                    # Regardless of success or failure, hide the processing window at the end
+                    self.app.root.after(0, self.app.hide_processing_window)
+                    # Clean up temporary files
+                    for f in [tmp_in, tmp_out, temp_img_main]:
+                        if f and os.path.exists(f):
+                            try:
+                                os.remove(f)
+                                print(f"已清理临时文件: {f}")
+                            except Exception as cleanup_e:
+                                print(f"清理临时文件失败 {f}: {cleanup_e}")
+            
+            # Start worker thread
+            threading.Thread(target=worker, daemon=True).start()
+        
+    # 尝试识别文件头来命名提取的文件
+    def detect_file_type(self, data):
+        """Detect file type from binary data using magic bytes"""
+        if len(data) < 4:
+            return None
+        # Common file signatures (magic bytes)
+        signatures = {
+            b'\xFF\xD8\xFF': '.jpg',
+            b'\x89PNG': '.png',
+            b'GIF87a': '.gif',
+            b'GIF89a': '.gif',
+            b'%PDF': '.pdf',
+            b'PK\x03\x04': '.zip',
+            b'PK\x05\x06': '.zip',
+            b'PK\x07\x08': '.zip',
+            b'\x50\x4B\x03\x04': '.docx',  # Also for xlsx, pptx
+            b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1': '.doc',  # Also for xls, ppt
+            b'MZ': '.exe',
+            b'\x7FELF': '.elf',
+            b'\xCA\xFE\xBA\xBE': '.class',
+            b'\xFE\xED\xFA': '.mach',
+            b'#!': '.sh',
+            b'\x1F\x8B': '.gz',
+            b'BZh': '.bz2',
+            b'\x37\x7A\xBC\xAF\x27\x1C': '.7z',
+            b'Rar!': '.rar',
+            b'\x00\x00\x00\x14ftypMP4': '.mp4',
+            b'\x00\x00\x00\x14ftyp': '.mp4',
+            b'\x00\x00\x00\x18ftypmp4': '.mp4',
+            b'\x1A\x45\xDF\xA3': '.mkv',
+            b'OggS': '.ogg',
+            b'RIFF': '.wav',  # Also for avi
+            b'ID3': '.mp3',
+            b'\xFF\xFB': '.mp3',
+            b'\xFF\xF3': '.mp3',
+            b'\xFF\xF2': '.mp3',
+            b'fLaC': '.flac',
+        }
+        
+        # Check each signature
+        for sig, ext in signatures.items():
+            if data.startswith(sig):
+                return ext
+        
+        # Special checks for text files
+        try:
+            # Try to decode as UTF-8
+            data[:1000].decode('utf-8')
+            # Check if it looks like text (printable characters)
+            if sum(1 for b in data[:100] if 32 <= b <= 126 or b in (9, 10, 13)) > 90:
+                return '.txt'
+        except:
+            pass
+        
+        # Default to .bin if cannot detect
+        return '.bin'
 
     def extract_watermark_v013(self, filepath):
         """旧版本兼容方法 - 从文件名提取ws和size信息"""
