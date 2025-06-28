@@ -3,14 +3,10 @@
 ## See LICENSE file for full terms
 """
 鲁棒二进制信息嵌入编码器(rc1)
-
-修复了以下问题：
-1. CRC16-CCITT实现错误
-2. 同步模式匹配问题
-3. 数据包提取逻辑错误
 """
 
 import struct
+from tkinter import messagebox
 import zlib
 import numpy as np
 from typing import Dict, List, Union, Tuple, Optional
@@ -55,6 +51,37 @@ def get_encoding_stats(text: str) -> dict:
         'total_chunks': total_chunks
     }
 
+def get_encoding_stats_bytes(binary_data: bytes) -> dict:
+    """
+    获取二进制数据的编码统计信息
+    
+    Args:
+        binary_data: 二进制数据
+        
+    Returns:
+        dict: 统计信息字典
+    """
+    original_size = len(binary_data)
+    compressed_data = zlib.compress(binary_data)
+    compressed_size = len(compressed_data)
+    
+    # 估算所需容量
+    min_capacity_bytes = estimate_required_capacity(binary_data)
+    min_capacity_bits = min_capacity_bytes * 8
+    
+    # 估算分片数（假设每片1KB）
+    chunk_size = 1024  # 1KB per chunk
+    total_chunks = (compressed_size + chunk_size - 1) // chunk_size
+    
+    return {
+        'original_size': original_size,
+        'compressed_size': compressed_size,
+        'min_capacity_bytes': min_capacity_bytes,
+        'min_capacity_bits': min_capacity_bits,
+        'total_chunks': total_chunks,
+        'compression_ratio': compressed_size / original_size if original_size > 0 else 0
+    }
+
 def adapt_to_watermark_capacity(text: str, available_capacity: int, safety_margin: float = 0.85) -> List[bool]:
     """根据可用容量自动适配编码"""
     target_capacity = int(available_capacity * safety_margin)
@@ -85,17 +112,115 @@ def adapt_to_watermark_capacity(text: str, available_capacity: int, safety_margi
         print(f"警告：文本过长，已截断到 {len(best_text)} 字符")
         return encode_binary_to_watermark(best_text, max_capacity_bits=target_capacity)
 
-def print_encoding_report(text: str):
-    """打印编码报告"""
-    stats = get_encoding_stats(text)
-    print(f"\n=== 编码报告 ===")
-    print(f"原始文本长度: {len(text)} 字符")
-    print(f"UTF-8字节数: {stats['original_size']} 字节")
-    print(f"压缩后字节数: {stats['compressed_size']} 字节")
-    print(f"压缩率: {(1 - stats['compressed_size']/stats['original_size'])*100:.1f}%")
-    print(f"需要最小容量: {stats['min_capacity_bits']} 比特")
-    print(f"数据分片数: {stats['total_chunks']}")
-    print(f"================")
+def adapt_to_watermark_capacity_binary(binary_data: Union[bytes, bytearray], available_capacity: int, safety_margin: float = 0.85) -> List[bool]:
+    """
+    根据可用容量自动适配编码
+   
+    Args:
+        binary_data: 要嵌入的二进制数据 (bytes 或 bytearray)
+        available_capacity: 可用容量（比特数，即能嵌入的最大bit数）
+        safety_margin: 安全边际（默认0.85，即85%）
+   
+    Returns:
+        List[bool]: 编码后的比特数组
+    """
+    # 确保输入是 bytes 类型
+    if isinstance(binary_data, str):
+        binary_data = binary_data.encode('utf-8')
+    elif isinstance(binary_data, bytearray):
+        binary_data = bytes(binary_data)
+   
+    # 计算目标容量（比特）
+    target_capacity_bits = int(available_capacity * safety_margin)
+   
+    # 获取二进制数据的大小
+    data_size = len(binary_data)
+   
+    try:
+        # 先尝试标准编码 - 估算所需容量
+        # estimate_required_capacity 返回 (总比特数, 分片数) 的元组
+        min_required_bits, total_chunks = estimate_required_capacity(binary_data)
+        
+        if min_required_bits <= target_capacity_bits:
+            # 容量足够，使用标准编码
+            print(f"容量足够：需要 {min_required_bits} 比特，可用 {target_capacity_bits} 比特")
+            return encode_binary_to_watermark(binary_data, max_capacity_bits=target_capacity_bits)
+        else:
+            # 容量不够，截断二进制数据
+            print(f"容量不足：需要 {min_required_bits} 比特，可用 {target_capacity_bits} 比特")
+           
+            # 二分查找最大可编码的数据长度
+            left, right = 1, len(binary_data)
+            best_data = binary_data[:1]  # 至少保留一个字节
+           
+            while left <= right:
+                mid = (left + right) // 2
+                test_data = binary_data[:mid]
+                
+                try:
+                    required_bits, _ = estimate_required_capacity(test_data)
+                    
+                    if required_bits <= target_capacity_bits:
+                        best_data = test_data
+                        left = mid + 1
+                    else:
+                        right = mid - 1
+                except Exception as e:
+                    print(f"二分查找过程中估算容量失败: {e}")
+                    # 出错时缩小范围
+                    right = mid - 1
+           
+            print(f"警告：数据过长，已截断到 {len(best_data)} 字节 (原始: {data_size} 字节)")
+            return encode_binary_to_watermark(best_data, max_capacity_bits=target_capacity_bits)
+            
+    except Exception as e:
+        print(f"RC1编码适配过程出错: {e}")
+        raise Exception(f"RC1编码适配失败: {e}")
+
+def print_encoding_report(binary_data: Union[bytes, bytearray, str]):
+    """
+    打印编码报告
+    
+    Args:
+        binary_data: 要分析的二进制数据
+    """
+    # 确保输入是 bytes 类型
+    if isinstance(binary_data, str):
+        binary_data = binary_data.encode('utf-8')
+        data_type = "文本 (转换为UTF-8)"
+    elif isinstance(binary_data, bytearray):
+        binary_data = bytes(binary_data)
+        data_type = "二进制数据"
+    else:
+        data_type = "二进制数据"
+    
+    try:
+        # 使用现有的 estimate_required_capacity 函数
+        min_capacity_bits, total_chunks = estimate_required_capacity(binary_data)
+        min_capacity_bytes = (min_capacity_bits + 7) // 8  # 向上取整转换为字节
+        
+        # 计算压缩信息
+        compressed_data = zlib.compress(binary_data, level=9)
+        compressed_size = len(compressed_data)
+        compression_ratio = (1 - compressed_size/len(binary_data)) * 100 if len(binary_data) > 0 else 0
+        
+        print(f"\n=== 编码报告 ===")
+        print(f"数据类型: {data_type}")
+        print(f"原始数据大小: {len(binary_data)} 字节")
+        print(f"压缩后大小: {compressed_size} 字节")
+        print(f"压缩率: {compression_ratio:.1f}%")
+        print(f"需要最小容量: {min_capacity_bytes} 字节")
+        print(f"需要最小容量: {min_capacity_bits} 比特")
+        print(f"数据分片数: {total_chunks}")
+        print(f"推荐安全容量: {int(min_capacity_bytes / 0.85)} 字节")
+        print(f"================")
+        
+    except Exception as e:
+        print(f"\n=== 编码报告 (错误) ===")
+        print(f"数据类型: {data_type}")
+        print(f"原始数据大小: {len(binary_data)} 字节")
+        print(f"报告生成失败: {e}")
+        print(f"========================")
 
 def analyze_watermark_quality(bitstream: List[bool]) -> Dict:
     """分析水印质量"""
@@ -403,7 +528,7 @@ def extract_packets_from_bitstream(
     rs_n: int = 255, 
     sync_header: int = 0xB593
 ) -> List[Tuple[bytes, int]]:
-    """从比特流中提取数据包（修复版）"""
+    """从比特流中提取数据包"""
     sync_positions = find_sync_patterns(bitstream, sync_header)
     packets = []
     
