@@ -225,19 +225,10 @@ class WatermarkExtractor:
                 bin_filepath = os.path.join(source_dir, f"{base_name}.bin")
                 
                 # 保存二进制数据到文件
-                with open(bin_filepath, 'w', encoding='utf-8') as f:
-                    # 写入文件头信息
-                    f.write(f"# 二进制水印提取结果\n")
-                    f.write(f"# 源文件: {os.path.basename(filepath)}\n")
-                    f.write(f"# 水印长度: {wm_len}\n")
-                    f.write(f"# 阈值: {threshold:.3f}\n")
-                    f.write(f"# 平均置信度: {avg_confidence:.3f}\n")
-                    f.write(f"# 格式: 每行一个位值 (0/1)\n")
-                    f.write("# --- 数据开始 ---\n")
-                    
-                    # 写入二进制数据
-                    for bit in bit_result:
-                        f.write(f"{int(bit)}\n")
+                with open(bin_filepath, 'wb') as f:
+                    # 布尔值表转字节流
+                    binary_data = bytes([int(bit) for bit in bit_result])
+                    f.write(binary_data)
                 
                 # 格式化结果消息
                 result_str = "二进制水印提取完成!\n"
