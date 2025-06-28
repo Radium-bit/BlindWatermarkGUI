@@ -288,13 +288,6 @@ class WatermarkExtractor:
                     # Create temporary file for processing
                     tmp_in = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
                     
-                    # Save the image temporarily (with conversion if needed)
-                    if filepath.lower().endswith(('.jpg', '.jpeg')) and \
-                            (image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0'):
-                        temp_img_main = os.path.join(os.path.dirname(filepath), "temp_converted_main_image.jpg")
-                        image.save(temp_img_main, "JPEG", subsampling="4:2:0", quality=100)
-                        image = Image.open(temp_img_main)
-                        width, height = image.size
                     
                     # Save the input image for blind-watermark library
                     with open(tmp_in, 'wb') as f:
