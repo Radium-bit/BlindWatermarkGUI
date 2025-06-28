@@ -761,14 +761,15 @@ def create_app_class():
                                 self.embedder.embed_watermark_custom_image(f, custom_file_path)
                             else:
                                 # 不是图像文件，调用二进制文件水印嵌入方法
-                                self.embedder.embed_watermark_custom_binary(f, custom_file_path)
+                                # self.embedder.embed_watermark_custom_binary(f, custom_file_path)
+                                self.embedder.embed_watermark_custom_binary_with_rc1(f,custom_file_path)
                         else:
                             self.embedder.embed_watermark(f)
                     else:
                         if self.compatibility_mode.get():
                             self.extractor.extract_watermark_v013(f)
                         elif self.extract_mode.get() == "file":
-                            self.extractor.extract_watermark_bit_advanced(f,auto_threshold=True)
+                            self.extractor.extract_watermark_bit_advanced_with_rc1(f,use_rc1_flag=True)
                         else:
                             self.extractor.extract_watermark(f)
                 except Exception as e:

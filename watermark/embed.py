@@ -243,7 +243,7 @@ class WatermarkEmbedder:
                             os.remove(f)
                             print(f"已清理临时文件: {f}")
                         except Exception as cleanup_e:
-                            print(f"清理临时文件失败 {f}: {cleanup_e}") # 仅打印清理失败信息
+                            print(f"清理临时文件失败 {f}: {cleanup_e}")
 
         # 启动工作线程
         threading.Thread(target=worker, daemon=True).start()
@@ -408,6 +408,214 @@ class WatermarkEmbedder:
 
         self.app.hide_processing_window()
 
+    def embed_watermark_custom_binary_with_rc1(self, filepath, w_filepath, use_rc1=True):
+        def worker():
+            tmp_in = None
+            tmp_out = None
+            temp_img_main = None  # 用于主图片临时转换的变量
+            tmp_watermark_file = None  # 用于复制水印文件的临时路径
+            use_rc1_encoding = use_rc1
+            try:
+                if not os.path.exists(w_filepath):
+                    self.app.root.after(0, lambda: messagebox.showerror("错误", f"水印文件不存在：{w_filepath}\n请检查水印路径是否正确？"))
+                    self.app.root.after(0, self.app.hide_processing_window)
+                    return  # Exit early, do not proceed with further operations
+
+                # Show processing window
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在处理图片，请稍候..."))
+                output_dir = self.app.get_output_dir()
+                os.makedirs(output_dir, exist_ok=True)
+                name, ext = os.path.splitext(os.path.basename(filepath))
+                # Read the main image
+                image = Image.open(filepath)
+                width, height = image.size
+                # Check and convert JPG color space of the main image (only if output format is JPG)
+                if self.app.output_format.get() == "JPG":
+                    if filepath.lower().endswith(('.jpg', '.jpeg')):
+                        # Check if the main image needs color space conversion
+                        if image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0':
+                            # Start long-running operation prompt
+                            self.app.root.after(0, lambda: self.app.show_processing_window("正在转换主图片色彩空间，请稍候..."))
+                            start_time = time.time()
+                            image = image.convert('RGB')
+                            # If conversion time exceeds 1 second, keep the prompt window
+                            if time.time() - start_time > 1:
+                                self.app.root.after(0, lambda: messagebox.showinfo("色彩空间转换", "为确保兼容性，已将主图片色彩空间转换为sRGB 4:2:0"))
+                            else:
+                                self.app.root.after(0, self.app.hide_processing_window)
+                # --- Copy watermark file to temporary directory (to avoid Chinese path issues) ---
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在处理水印文件，请稍候..."))
+                _, w_ext = os.path.splitext(w_filepath)
+                tmp_watermark_file = tempfile.NamedTemporaryFile(suffix=w_ext, delete=False).name
+                shutil.copy2(w_filepath, tmp_watermark_file)
+                # Define all temporary file variables
+                tmp_in = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
+                tmp_out = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
+                # Temporarily save the converted main image (only if conversion is needed)
+                if self.app.output_format.get() == "JPG" and filepath.lower().endswith(('.jpg', '.jpeg')) and \
+                        (image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0'):
+                    temp_img_main = os.path.join(os.path.dirname(filepath), "temp_converted_main_image.jpg")
+                    image.save(temp_img_main, "JPEG", subsampling="4:2:0", quality=100)
+                    image = Image.open(temp_img_main)
+                    width, height = image.size  # Update dimensions
+                # Save the input main image and ensure the file is closed, for Blind-Watermark library to read
+                with open(tmp_in, 'wb') as f:
+                    image.save(f)
+                # Get password
+                pwd = self.app.get_pwd()
+                if self.app.enhanced_mode.get():
+                    try:
+                        # Read temporary file
+                        img = Image.open(tmp_in).convert("RGB")  # Read image, convert to RGB model
+                        arr = np.array(img).astype(np.float32)  # Avoid uint8 overflow
+                        print("Using Enhanced Mode...")
+                        # 生成2D柏林噪声
+                        noise = np.zeros((arr.shape[0], arr.shape[1]), dtype=np.float32)
+                        for i in range(arr.shape[0]):
+                            for j in range(arr.shape[1]):
+                                noise[i][j] = pnoise2(i / 50.0, j / 50.0, octaves=2)
+                        # 扩展3D通道
+                        noise_3d = np.repeat(noise[:, :, np.newaxis], 3, axis=2)
+                        arr += noise_3d * 12.8  # Control noise intensity
+                        arr = np.clip(arr, 0, 255).astype(np.uint8)
+                        # Write back to file
+                        Image.fromarray(arr).save(tmp_in)
+                    except Exception as e:
+                        print(f"Noise processing failed: {e}")
+                # ========== RC1纠错编码处理开始 ==========
+                if use_rc1_encoding:
+                    self.app.root.after(0, lambda: self.app.show_processing_window("正在使用RC1纠错编码处理水印文件，请稍候..."))
+
+                    # 读取二进制水印文件
+                    with open(tmp_watermark_file, 'rb') as f:
+                        binary_data = f.read()
+
+                    # 创建WaterMark实例来获取精确的可用容量
+                    self.app.root.after(0, lambda: self.app.show_processing_window("正在计算图像可用容量，请稍候..."))
+                    try:
+                        # 创建WaterMark实例来获取容量信息
+                        bwm_temp = WaterMark(password_img=int(pwd), password_wm=int(pwd))
+                        bwm_temp.read_img(tmp_in)
+
+                        # WaterMarkCore有一个方法可以获取可用容量，如果没有则使用估算
+                        # 这里需要根据实际的WaterMark类实现来调整
+                        try:
+                            # 尝试获取实际可用容量
+                            bwm_temp.bwm_core.init_block_index()
+                            available_capacity = bwm_temp.bwm_core.block_num
+                            capacity_method = "精确计算"
+                        except AttributeError:
+                            # 如果方法不存在，回退到估算
+                            available_capacity = int(width * height * 0.25)
+                            capacity_method = "估算"
+
+                        print(f"原始水印文件大小: {len(binary_data)} 字节")
+                        print(f"图像可用容量({capacity_method}): {available_capacity} 比特")
+
+                    except Exception as e:
+                        print(f"获取容量信息失败: {e}")
+                        # 回退到基本估算
+                        available_capacity = int(width * height * 0.25)
+                        capacity_method = "基本估算"
+                        print(f"使用基本估算容量: {available_capacity} 比特")
+
+                    # 获取RC1编码统计信息
+                    try:
+                        from .dataShielder import get_encoding_stats, adapt_to_watermark_capacity, print_encoding_report
+
+                        # 打印编码前的报告
+                        print_encoding_report(binary_data)
+
+                        # 使用RC1编码器处理数据，自动适配图像容量
+                        bit_array = adapt_to_watermark_capacity(
+                            binary_data,
+                            available_capacity,
+                            safety_margin=0.90  # 使用90%的安全边际
+                        )
+
+                        wm_len = len(bit_array)
+                        compression_info = f"RC1编码"
+
+                        print(f"RC1编码后比特长度: {wm_len}")
+                        if 'available_capacity' in locals():
+                            print(f"容量利用率: {(wm_len/available_capacity)*100:.1f}%")
+
+                    except ImportError:
+                        # 如果RC1编码器不可用，回退到原始方法
+                        print("警告：RC1编码器不可用，使用原始编码方法")
+                        use_rc1_encoding = False
+
+                if not use_rc1_encoding:
+                    # 原始方法：直接将二进制数据转换为比特数组
+                    self.app.root.after(0, lambda: self.app.show_processing_window("正在读取二进制水印文件，请稍候..."))
+                    with open(tmp_watermark_file, 'rb') as f:
+                        binary_data = f.read()
+
+                    # Convert binary data to bit array
+                    bit_array = []
+                    for byte in binary_data:
+                        for i in range(8):
+                            bit_array.append(bool(byte & (1 << (7 - i))))
+
+                    wm_len = len(bit_array)
+                    compression_info = f"原始编码"
+                # ========== RC1纠错编码处理结束 ==========
+                # Watermark embedding
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在嵌入水印，请稍候..."))
+                try:
+                    bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
+                    bwm1.read_img(tmp_in)  # Read main image
+                    bwm1.read_wm(bit_array, mode='bit')  # Read binary bit array
+                    bwm1.embed(tmp_out)  # Embed watermark
+                except Exception as e:
+                    # If embedding fails, report error and return
+                    self.app.root.after(0, lambda error_msg=e: messagebox.showerror("错误", f"水印嵌入失败: {str(error_msg)}\n请尝试使用更小的二进制文件或更大的主图片"))
+                    return
+                output_ext = ".jpg" if self.app.output_format.get() == "JPG" else ext  # Determine output file extension
+
+                # 修改输出文件名，包含编码信息
+                encoding_suffix = "-RC1" if use_rc1_encoding else "-RAW"
+                dst_img = os.path.join(
+                    os.path.dirname(filepath),
+                    f"{name}-Watermark{encoding_suffix}-ws{wm_len}-size{width}x{height}{output_ext}"
+                )
+                if self.app.output_format.get() == "JPG":
+                    # Create sRGB ICC profile
+                    srgb_profile = ImageCms.createProfile("sRGB")
+                    # Save JPG with ICC profile
+                    img_to_save = Image.open(tmp_out).convert('RGB')
+                    img_to_save.save(dst_img, "JPEG", quality=100, subsampling="4:2:0",
+                                    icc_profile=ImageCms.ImageCmsProfile(srgb_profile).tobytes())
+                else:
+                    # For non-JPG formats, directly copy the temporary output file to the target path
+                    shutil.copy2(tmp_out, dst_img)
+                # Ensure processing window is closed
+                self.app.root.after(0, self.app.hide_processing_window)
+
+                # 显示详细的成功信息
+                original_size = len(binary_data) if 'binary_data' in locals() else 0
+                # 计算容量利用率
+                capacity_utilization = (wm_len / available_capacity) * 100 if 'available_capacity' in locals() and available_capacity > 0 else 0
+
+                success_message = f"""嵌入成功！输出文件：{dst_img}编码信息：\n• 编码方式：{compression_info}\n• 原始数据：{original_size} 字节\n• 水印长度：{wm_len} 比特\n• 图像尺寸：{width}x{height}\n• 容量利用率：{capacity_utilization:.1f}%\n提示：{'使用RC1纠错编码可提供更好的抗噪性能' if use_rc1_encoding else '建议使用RC1编码以获得更好的鲁棒性'}"""
+                self.app.root.after(0, lambda: messagebox.showinfo("嵌入成功", success_message))
+            except Exception as e:
+                # Catch other unforeseen errors and display them
+                self.app.root.after(0, lambda e_val=e: messagebox.showerror("错误", str(e_val)))
+            finally:
+                # Regardless of success or failure, hide the processing window at the end
+                self.app.root.after(0, self.app.hide_processing_window)
+                # Clean up temporary files
+                for f in [tmp_in, tmp_out, temp_img_main, tmp_watermark_file]:
+                    if f and os.path.exists(f):
+                        try:
+                            os.remove(f)
+                            print(f"已清理临时文件: {f}")
+                        except Exception as cleanup_e:
+                            print(f"清理临时文件失败 {f}: {cleanup_e}")  # Only print cleanup failure info
+        # Start worker thread
+        threading.Thread(target=worker, daemon=True).start()
+        self.app.hide_processing_window()
 
     def embed_watermark(self, filepath):
         def worker():
@@ -493,7 +701,7 @@ class WatermarkEmbedder:
                         Image.fromarray(arr).save(tmp_in)
                     except Exception as e:
                         print(f"噪声处理失败: {e}")
-                
+
                 # 先尝试128x128二维码嵌入
                 try:
                     bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
