@@ -413,57 +413,6 @@ def create_app_class():
             # 延迟关闭启动画面并显示主窗口
             self.root.after(500, self.finish_startup)
 
-def create_app_class():
-    """创建App类，在导入完成后调用"""
-    
-    class App:
-        def __init__(self, root):
-            global main_root
-            self.root = root
-            self.root.title("正在初始化...")
-            
-            self.version = " Unknown"
-            
-            # P4：设定识别模型
-            update_splash_status("设定识别模型...")
-            self.set_model_path()
-            
-            update_splash_status("加载QReader（这可能需要一些时间）...")
-            from debug.module_tracker import start_tracking ##Module import Tracker(Debug USE)
-            ## [DEBUG] 用于测试记录QReader所使用的隐藏导入模块
-            # start_tracking()
-            from qreader import QReader
-            self.qreader = QReader()
-            
-            # P5：初始化界面
-            update_splash_status("构建用户界面...")
-            
-            self.processing_window = None
-            self.processing_label = None
-            self.processing_animation = None
-            self.processing_active = False
-            self.config_path = os.path.join(os.environ["USERPROFILE"], "radiumbit.blindwatermark.config.json")
-            self._saved_before_close = False
-            self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-            self._load_build_env()
-            self.root.title(f"BlindWatermarkGUI v{self.version}")
-            self.root.geometry("580x760")
-            self.root.configure(bg="white")
-            # self.qr_window = None
-
-            # 初始化水印处理器
-            self.embedder = imported_modules['WatermarkEmbedder'](self)
-            self.extractor = imported_modules['WatermarkExtractor'](self)
-
-            # 创建界面
-            self.create_ui()
-            
-            # 完成初始化
-            update_splash_status("启动完成！")
-            
-            # 延迟关闭启动画面并显示主窗口
-            self.root.after(500, self.finish_startup)
-
         def create_ui(self):
             """创建用户界面"""
             import tkinter as tk
