@@ -164,6 +164,115 @@ class WatermarkExtractor:
                 
         threading.Thread(target=worker).start()
 
+    def extract_watermark_bit_advanced(self, filepath, threshold=0.5, auto_threshold=False):
+        """高级版本：支持自动阈值调整的二进制水印提取，保存到.bin文件"""
+        def worker():
+            try:
+                # 显示处理窗口
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在提取二进制水印，请稍候..."))
+                
+                pwd = self.app.get_pwd()
+                name = os.path.basename(filepath)
+                ext = os.path.splitext(filepath)[1]
+
+                output_dir = self.app.get_output_dir()
+                tmp_in = os.path.join(output_dir, f"input.png")
+
+                # 读取 ws (水印长度)
+                wm_len = self.app.get_ws()
+                if wm_len is None:
+                    m = re.search(r"ws(\d+)", name)
+                    if not m:
+                        raise ValueError("文件名中未找到 ws（如 ws6）\n可手动输入或改名")
+                    wm_len = int(m.group(1))
+
+                # 读取原始尺寸
+                target_size = self.app.get_target_size()
+                if target_size is None:
+                    m = re.search(r"size(\d+)x(\d+)", name)
+                    if not m:
+                        raise ValueError("文件名中未找到 size（如 size800x600）\n可手动输入或改名")
+                    target_size = int(m.group(1)), int(m.group(2))
+
+                # 处理图片
+                img = Image.open(filepath)
+                if img.size == target_size:
+                    img.save(tmp_in)
+                else:
+                    resized = img.resize(target_size, Image.LANCZOS)
+                    resized.save(tmp_in, format="PNG")
+
+                # 提取水印
+                bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
+                wm_extract = bwm1.extract(tmp_in, wm_shape=wm_len, mode='bit')
+                
+                # 自动调整阈值（可选）
+                if auto_threshold:
+                    # 使用中位数作为阈值
+                    threshold = np.median(wm_extract)
+                    print(f"自动计算阈值: {threshold}")
+                
+                # 转换为布尔值
+                bit_result = [value > threshold for value in wm_extract]
+                
+                # 计算提取质量指标
+                confidence_scores = [abs(value - threshold) for value in wm_extract]
+                avg_confidence = np.mean(confidence_scores)
+                
+                # 生成输出文件路径：与原文件同名，但扩展名为.bin，保存在源目录
+                source_dir = os.path.dirname(filepath)
+                base_name = os.path.splitext(os.path.basename(filepath))[0]
+                bin_filepath = os.path.join(source_dir, f"{base_name}.bin")
+                
+                # 保存二进制数据到文件
+                with open(bin_filepath, 'w', encoding='utf-8') as f:
+                    # 写入文件头信息
+                    f.write(f"# 二进制水印提取结果\n")
+                    f.write(f"# 源文件: {os.path.basename(filepath)}\n")
+                    f.write(f"# 水印长度: {wm_len}\n")
+                    f.write(f"# 阈值: {threshold:.3f}\n")
+                    f.write(f"# 平均置信度: {avg_confidence:.3f}\n")
+                    f.write(f"# 格式: 每行一个位值 (0/1)\n")
+                    f.write("# --- 数据开始 ---\n")
+                    
+                    # 写入二进制数据
+                    for bit in bit_result:
+                        f.write(f"{int(bit)}\n")
+                
+                # 格式化结果消息
+                result_str = "二进制水印提取完成!\n"
+                result_str += f"水印长度: {wm_len} 位\n"
+                result_str += f"使用阈值: {threshold:.3f}\n"
+                result_str += f"平均置信度: {avg_confidence:.3f}\n"
+                result_str += f"结果已保存到:\n{bin_filepath}\n"
+                
+                # 显示置信度统计
+                high_conf = sum(1 for score in confidence_scores if score > 0.2)
+                medium_conf = sum(1 for score in confidence_scores if 0.1 < score <= 0.2)
+                low_conf = sum(1 for score in confidence_scores if score <= 0.1)
+                
+                result_str += f"\n置信度分布:\n"
+                result_str += f"高置信度 (>0.2): {high_conf} 位\n"
+                result_str += f"中置信度 (0.1-0.2): {medium_conf} 位\n"
+                result_str += f"低置信度 (≤0.1): {low_conf} 位"
+                
+                # 显示结果
+                self.app.root.after(0, self.app.hide_processing_window)
+                self.app.root.after(0, lambda: messagebox.showinfo("提取成功", result_str))
+
+                # 清理临时文件
+                if os.path.exists(tmp_in):
+                    try:
+                        os.remove(tmp_in)
+                    except:
+                        pass
+                        
+            except Exception as e:
+                self.app.root.after(0, lambda: messagebox.showerror("错误", str(e)))
+                self.app.root.after(0, self.app.hide_processing_window)
+                
+        threading.Thread(target=worker).start()
+
     def extract_watermark_v013(self, filepath):
         """旧版本兼容方法 - 从文件名提取ws和size信息"""
         def worker():

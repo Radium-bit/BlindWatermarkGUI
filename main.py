@@ -413,6 +413,57 @@ def create_app_class():
             # 延迟关闭启动画面并显示主窗口
             self.root.after(500, self.finish_startup)
 
+def create_app_class():
+    """创建App类，在导入完成后调用"""
+    
+    class App:
+        def __init__(self, root):
+            global main_root
+            self.root = root
+            self.root.title("正在初始化...")
+            
+            self.version = " Unknown"
+            
+            # P4：设定识别模型
+            update_splash_status("设定识别模型...")
+            self.set_model_path()
+            
+            update_splash_status("加载QReader（这可能需要一些时间）...")
+            from debug.module_tracker import start_tracking ##Module import Tracker(Debug USE)
+            ## [DEBUG] 用于测试记录QReader所使用的隐藏导入模块
+            # start_tracking()
+            from qreader import QReader
+            self.qreader = QReader()
+            
+            # P5：初始化界面
+            update_splash_status("构建用户界面...")
+            
+            self.processing_window = None
+            self.processing_label = None
+            self.processing_animation = None
+            self.processing_active = False
+            self.config_path = os.path.join(os.environ["USERPROFILE"], "radiumbit.blindwatermark.config.json")
+            self._saved_before_close = False
+            self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+            self._load_build_env()
+            self.root.title(f"BlindWatermarkGUI v{self.version}")
+            self.root.geometry("580x760")
+            self.root.configure(bg="white")
+            # self.qr_window = None
+
+            # 初始化水印处理器
+            self.embedder = imported_modules['WatermarkEmbedder'](self)
+            self.extractor = imported_modules['WatermarkExtractor'](self)
+
+            # 创建界面
+            self.create_ui()
+            
+            # 完成初始化
+            update_splash_status("启动完成！")
+            
+            # 延迟关闭启动画面并显示主窗口
+            self.root.after(500, self.finish_startup)
+
         def create_ui(self):
             """创建用户界面"""
             import tkinter as tk
@@ -433,18 +484,20 @@ def create_app_class():
             frm_mode = tk.Frame(left_container, bg="white")
             frm_mode.pack(side="left", anchor="sw", pady=0)
             tk.Label(frm_mode, text="选择模式：", bg="white").pack(side="left")
+            self.mode.trace_add('write',self.on_mode_change)
             tk.Radiobutton(frm_mode, text="嵌入水印", variable=self.mode, value="embed", bg="white").pack(side="left")
             tk.Radiobutton(frm_mode, text="提取水印", variable=self.mode, value="extract", bg="white").pack(side="left",padx=5)
             
             placeholder_frame = tk.Frame(horizontal_frame, bg="white")  # 透明占位
             placeholder_frame.pack(side="right", anchor="ne", pady=30)
-            format_frame = tk.Frame(self.root, bg="white")
-            algorithm_frame = tk.Frame(self.root, bg="white")
+            self.format_frame = tk.Frame(self.root, bg="white")
+            self.frm_extract_mode = tk.Frame(self.root, bg="white")
+            self.algorithm_frame = tk.Frame(self.root, bg="white")
             # 增强模式选项
             from tkinter import BooleanVar, Checkbutton
             options_frame_up = tk.Frame(horizontal_frame, bg="white")
             options_frame_up.pack(side="right", anchor="se", pady=(20,0))
-            options_frame_down = tk.Frame(format_frame, bg="white")
+            options_frame_down = tk.Frame(self.format_frame, bg="white")
             options_frame_down.pack(side="right", anchor="ne", pady=(0,2))
             # 增强模式选项
             self.enhanced_mode = BooleanVar(value=False)
@@ -456,42 +509,50 @@ def create_app_class():
             )
             self.enhanced_check.pack(anchor='e',pady=(0,2))
 
-            # 嵌入自定图片
-            self.is_custom_image = BooleanVar(value=False)
-            self.custom_check = Checkbutton(
-                options_frame_up, 
-                text="嵌入自定图片",
-                variable=self.is_custom_image,
-                command=self.toggle_custom_data_input_frame
-            )
-            self.custom_check.pack(anchor='e',pady=(0,2))
-            # 兼容性模式
-            self.compatibility_mode = BooleanVar(value=False)
-
             # 原图显示选项
             self.show_orignal_extract_picture = BooleanVar(value=False)
             self.show_orignal_extract_picture_check = Checkbutton(
-                options_frame_down, 
+                options_frame_up, 
                 text="提取显示原图",
                 variable=self.show_orignal_extract_picture,
                 command=self.show_orignal_extract_picture_warning
             )
             self.show_orignal_extract_picture_check.pack(anchor='e')
 
+            # 嵌入自定图片
+            self.is_custom_file = BooleanVar(value=False)
+            self.custom_check = Checkbutton(
+                options_frame_down, 
+                text="嵌入自定水印",
+                variable=self.is_custom_file,
+                command=self.toggle_custom_data_input_frame
+            )
+            self.custom_check.pack(anchor='e',pady=(0,2))
+            # 兼容性模式
+            self.compatibility_mode = BooleanVar(value=False)
+
+
             # 输出格式选择（单独一行）
             self.output_format = tk.StringVar(value="PNG")
-            format_frame.pack(pady=2, fill="x", anchor="nw", padx=20)
-            tk.Label(format_frame, text="输出格式:", bg="white").pack(side="left")
-            tk.Radiobutton(format_frame, text="PNG", variable=self.output_format, value="PNG", bg="white").pack(side="left", padx=5)
-            tk.Radiobutton(format_frame, text="JPG", variable=self.output_format, value="JPG", bg="white").pack(side="left", padx=5)
+            self.format_frame.pack(pady=2, fill="x", anchor="nw", padx=20)
+            tk.Label(self.format_frame, text="输出格式:", bg="white").pack(side="left")
+            tk.Radiobutton(self.format_frame, text="PNG", variable=self.output_format, value="PNG", bg="white").pack(side="left", padx=5)
+            tk.Radiobutton(self.format_frame, text="JPG", variable=self.output_format, value="JPG", bg="white").pack(side="left", padx=5)
+            # 提取模式选择
+            self.frm_extract_mode
+            self.extract_mode = tk.StringVar(value="image")
+            self.extract_mode.trace_add('write', self.on_extract_mode_change)
+            tk.Label(self.frm_extract_mode, text="提取模式：", bg="white").pack(side="left")
+            tk.Radiobutton(self.frm_extract_mode, text="图像水印", variable=self.extract_mode, value="image", bg="white").pack(side="left")
+            tk.Radiobutton(self.frm_extract_mode, text="文件水印", variable=self.extract_mode, value="file", bg="white").pack(side="left",padx=5)
             # 算法版本选择
             self.algorithm_version = tk.StringVar(value=2)
-            algorithm_frame.pack(pady=2, fill="x", anchor="nw", padx=20)
+            self.algorithm_frame.pack(pady=2, fill="x", anchor="nw", padx=20)
             self.algorithm_version.trace_add('write', self.on_algorithm_version_change)
-            tk.Label(algorithm_frame, text="算法版本:", bg="white").pack(side="left")
-            tk.Radiobutton(algorithm_frame, text="v3", variable=self.algorithm_version, value=3, bg="white") #先不显示等v3做出来先
-            tk.Radiobutton(algorithm_frame, text="v2", variable=self.algorithm_version, value=2, bg="white").pack(side="left", padx=5)
-            tk.Radiobutton(algorithm_frame, text="v1", variable=self.algorithm_version, value=1, bg="white").pack(side="left", padx=5)
+            tk.Label(self.algorithm_frame, text="算法版本:", bg="white").pack(side="left")
+            tk.Radiobutton(self.algorithm_frame, text="v3", variable=self.algorithm_version, value=3, bg="white") #先不显示等v3做出来先
+            tk.Radiobutton(self.algorithm_frame, text="v2", variable=self.algorithm_version, value=2, bg="white").pack(side="left", padx=5)
+            tk.Radiobutton(self.algorithm_frame, text="v1", variable=self.algorithm_version, value=1, bg="white").pack(side="left", padx=5)
 
             # 密码输入
             frm_pwd = tk.Frame(self.root, bg="white")
@@ -602,7 +663,7 @@ def create_app_class():
 
         def toggle_custom_data_input_frame(self):
             """切换自定义图像输入框"""
-            if self.is_custom_image.get():
+            if self.is_custom_file.get():
                 self.frm_custom_data.pack(pady=5, fill="x", padx=20, before=self.frm_size)
                 self.frm_wm.pack_forget()
                 self.show_useing_custom_image_warning()
@@ -610,17 +671,39 @@ def create_app_class():
                 self.frm_custom_data.pack_forget()
                 self.frm_wm.pack(pady=5, fill="both", padx=20, before=self.frm_size)
 
+        def toggle_extract_mode_selection(self):
+            if self.mode.get() == "extract":
+                print("extract mode.")
+                self.frm_extract_mode.pack(pady=2, fill="x", anchor="nw", padx=20, before=self.algorithm_frame)
+                self.format_frame.pack_forget()
+            else:
+                self.format_frame.pack(pady=2, fill="x", anchor="nw", padx=20, before=self.algorithm_frame)
+                self.frm_extract_mode.pack_forget()
+
+        # 提取模式切换时
+        def on_extract_mode_change(self, *args):
+            if self.extract_mode.get() == "file":
+                self.frm_len.pack(pady=5, fill="x", padx=20, before=self.entry_out.master)
+            elif self.compatibility_mode.get():
+                self.frm_len.pack(pady=5, fill="x", padx=20, before=self.entry_out.master)
+            else:
+                self.frm_len.pack_forget()
+
         # 当算法版本被切换时
         def on_algorithm_version_change(self, *args):
             selected_version = int(self.algorithm_version.get())
             if selected_version == 1:
-                self.is_custom_image.set(False)
+                self.is_custom_file.set(False)
                 self.toggle_custom_data_input_frame()
                 self.compatibility_mode.set(True)
                 self.toggle_compatibility_mode()
             elif selected_version == 2:
                 self.compatibility_mode.set(False)
                 self.toggle_compatibility_mode()
+
+        def on_mode_change(self,*args):
+            self.toggle_extract_mode_selection()
+
 
         def _load_build_env(self):
             """加载APP.ENV配置文件并设置版本号"""
@@ -661,13 +744,31 @@ def create_app_class():
                     if self.mode.get() == "embed":
                         if self.compatibility_mode.get():
                             self.embedder.embed_watermark_v013(f)
-                        elif self.is_custom_image.get():
-                            self.embedder.embed_watermark_custom_image(f,self.custom_data.get())
+                        elif self.is_custom_file.get():
+                            # 检测自定义文件是否为图像文件
+                            custom_file_path = self.custom_data.get()
+                            
+                            # 定义支持的图像文件扩展名
+                            image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif', '.webp'}
+                            
+                            # 获取文件扩展名并转为小写
+                            _, file_ext = os.path.splitext(custom_file_path)
+                            file_ext_lower = file_ext.lower()
+                            
+                            # 判断是否为图像文件
+                            if file_ext_lower in image_extensions:
+                                # 是图像文件，调用图像水印嵌入方法
+                                self.embedder.embed_watermark_custom_image(f, custom_file_path)
+                            else:
+                                # 不是图像文件，调用二进制文件水印嵌入方法
+                                self.embedder.embed_watermark_custom_binary(f, custom_file_path)
                         else:
                             self.embedder.embed_watermark(f)
                     else:
                         if self.compatibility_mode.get():
                             self.extractor.extract_watermark_v013(f)
+                        elif self.extract_mode.get() == "file":
+                            self.extractor.extract_watermark_bit_advanced(f,auto_threshold=True)
                         else:
                             self.extractor.extract_watermark(f)
                 except Exception as e:
@@ -935,17 +1036,17 @@ def create_app_class():
                 if self.enhanced_mode.get():
                     messagebox.showwarning("注意", "v0.1.3兼容模式下\n不可使用增强处理\n不可嵌入自定图像")
                     self.enhanced_mode.set(False)
-                    self.is_custom_image.set(False)
+                    self.is_custom_file.set(False)
                     self.show_orignal_extract_picture.set(False)
 
         def show_useing_custom_image_warning(self):
             from tkinter import messagebox
-            if self.is_custom_image.get():
+            if self.is_custom_file.get():
                 if self.compatibility_mode.get():
                     messagebox.showwarning("注意", "v0.1.3兼容模式下\n无法嵌入自定图像")
-                    self.is_custom_image.set(False)
+                    self.is_custom_file.set(False)
                 else:
-                    messagebox.showinfo("自定义嵌入","已启用自定义嵌入图像模式\n嵌入的图像需约为128x128的内容，且转为灰度图像\n若不符合程序会强制转换！（受限于基础库）\n【建议使用对比明显的黑白水印图】\n请确保特征在低分辨率下可清晰分辨！")
+                    messagebox.showinfo("自定义嵌入","已启用自定义嵌入文件模式\n嵌入的图像需约为128x128的内容，且转为灰度图像\n若不符合程序会强制转换！（受限于基础库）\n其他文件会直接嵌入\n【建议使用对比明显的黑白水印图】\n请确保特征在低分辨率下可清晰分辨！")
 
         def show_orignal_extract_picture_warning(self):
             from tkinter import messagebox
