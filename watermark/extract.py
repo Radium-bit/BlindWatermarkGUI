@@ -41,128 +41,120 @@ class WatermarkExtractor:
                 self.app.root.after(0, lambda: self.app.show_processing_window("正在提取水印，请稍候..."))
                 if target_size is not None:
                     if img.size != target_size:
-                        print("Enter Resize Brench")
+                        print("Enter Resize Branch")
                         img = img.resize(target_size, Image.LANCZOS)
                 # 保存图像临时文件
                 img.save(tmp_in)
                 
-                # 尝试128x128尺寸提取
+                # 定义要尝试的尺寸列表
+                sizes_to_try = [256, 128, 96, 64]
                 pwd = self.app.get_pwd()
                 bwm1 = WaterMark(password_wm=int(pwd), password_img=int(pwd))
                 
-                # 初始化
+                # 初始化变量
                 text = None
-                img_128 = None
-                img_64 = None
+                extracted_images = {}  # 存储每个尺寸的提取结果 {size: (img, img_backup)}
+                success_size = None
                 
-                try:
-                    # 第一次尝试128x128
-                    bwm1.extract(filename=tmp_in, wm_shape=(128, 128), out_wm_name=tmp_out)
-                    img_128 = Image.open(tmp_out)
-                    # 尝试解码二维码
-                    qreader = self.app.qreader
-                    print(f'128x128临时文件路径: 输入={tmp_in} 输出={tmp_out}')
-                    if img_128.mode != 'RGB':
-                        img_128 = img_128.convert('RGB')
-                    img_array = np.array(img_128)
-                    text = qreader.detect_and_decode(image=img_array)[0]
-                    
-                    # 如果第一次解析失败，尝试增强解析
-                    # 先备份原图
-                    if self.app.show_orignal_extract_picture.get(): img_128_backup = img_128.copy()
-                    if not text:
-                        # 1. 尝试调整对比度和亮度
-                        enhancer = ImageEnhance.Contrast(img_128)
-                        img_128 = enhancer.enhance(2.0)
-                        enhancer = ImageEnhance.Brightness(img_128)
-                        img_128 = enhancer.enhance(1.5)
-                        
-                        # 2. 重新尝试解码
-                        img_array = np.array(img_128.convert('RGB'))
-                        text = qreader.detect_and_decode(image=img_array)[0]
-                except Exception as e:
-                    print(f"128x128提取失败: {e}")
-                    # 清理临时文件
-                    for f in [tmp_out]:
-                        if os.path.exists(f):
-                            os.unlink(f)
-                    # import traceback
-                    # print("完整错误追踪:")
-                    # traceback.print_exc()
-                    pass
-                
-                # 如果128x128失败，尝试64x64
-                if not text:
-                    print("Entering 64x64 branch")
+                # 按顺序尝试不同尺寸
+                for size in sizes_to_try:
                     try:
+                        self.app.root.after(0, lambda s=size: self.app.show_processing_window(f"正在尝试提取{s}x{s}尺寸水印，请稍候..."))
+                        print(f"尝试提取{size}x{size}尺寸水印")
+                        
+                        # 提取水印
+                        bwm1.extract(filename=tmp_in, wm_shape=(size, size), out_wm_name=tmp_out)
+                        extracted_img = Image.open(tmp_out)
+                        
+                        # 转换为RGB模式
+                        if extracted_img.mode != 'RGB':
+                            extracted_img = extracted_img.convert('RGB')
+                        
+                        # 备份原图（如果需要显示原始提取图片）
+                        img_backup = None
+                        if self.app.show_orignal_extract_picture.get():
+                            img_backup = extracted_img.copy()
+                        
+                        # 尝试解码二维码
                         qreader = self.app.qreader
-                        print(f'64x64临时文件路径: 输入={tmp_in} 输出={tmp_out}')
+                        print(f'{size}x{size}临时文件路径: 输入={tmp_in} 输出={tmp_out}')
                         
-                        # 在extract调用前添加参数检查
-                        if not all([tmp_in, tmp_out]):
-                            raise ValueError(f"文件路径参数异常 tmp_in:{tmp_in} tmp_out:{tmp_out}")
-                        
-                        bwm1.extract(filename=tmp_in, wm_shape=(64, 64), out_wm_name=tmp_out)
-                        img_64 = Image.open(tmp_out)
-                        
-                        if img_64.mode != 'RGB':
-                            img_64 = img_64.convert('RGB')
-                        img_array = np.array(img_64)
+                        img_array = np.array(extracted_img)
                         text = qreader.detect_and_decode(image=img_array)[0]
-                        print(text)
-                        print("Has try 64x64")
+                        
                         # 如果第一次解析失败，尝试增强解析
-                        # 先备份原图
-                        if self.app.show_orignal_extract_picture.get(): img_64_backup = img_64.copy()
                         if not text:
-                            print("No Text at try1")
+                            print(f"{size}x{size}第一次解析失败，尝试增强解析")
                             # 1. 尝试调整对比度和亮度
-                            enhancer = ImageEnhance.Contrast(img_64)
-                            img_64 = enhancer.enhance(2.0)
-                            enhancer = ImageEnhance.Brightness(img_64)
-                            img_64 = enhancer.enhance(1.5)
+                            enhancer = ImageEnhance.Contrast(extracted_img)
+                            extracted_img = enhancer.enhance(2.0)
+                            enhancer = ImageEnhance.Brightness(extracted_img)
+                            extracted_img = enhancer.enhance(1.5)
                             
                             # 2. 重新尝试解码
-                            img_array = np.array(img_64.convert('RGB'))
+                            img_array = np.array(extracted_img.convert('RGB'))
                             text = qreader.detect_and_decode(image=img_array)[0]
+                        
+                        # 存储提取结果
+                        extracted_images[size] = (extracted_img, img_backup)
+                        
+                        # 如果成功解码，记录成功的尺寸并跳出循环
+                        if text:
+                            success_size = size
+                            print(f"使用{size}x{size}尺寸成功提取水印: {text}")
+                            break
+                        else:
+                            print(f"{size}x{size}尺寸解码失败，尝试下一个尺寸")
+                            
                     except Exception as e:
-                        print(f"64x64提取失败: {e}")
+                        print(f"{size}x{size}提取失败: {e}")
                         # 清理临时文件
-                        for f in [tmp_out]:
-                            if os.path.exists(f):
-                                os.unlink(f)
-                        # import traceback
-                        # print("完整错误追踪:")
-                        # traceback.print_exc()
-                        pass
-                
-                # 如果两次都失败，显示图片和错误信息
-                if not text:
-                    images = []
-                    if img_128:
-                        if self.app.show_orignal_extract_picture.get():
-                            img_128 = img_128_backup.copy()
-                            img_128_backup.close()
-                        images.append(("128x128", img_128))
-                    if img_64:
-                        if self.app.show_orignal_extract_picture.get():
-                            img_64 = img_64_backup.copy()
-                            img_64_backup.close()
-                        images.append(("64x64", img_64))
-                    
-                    if images:
-                        # 将图片对象转换为可序列化的元组格式
-                        image_tuples = [(size, np.array(img)) for size, img in images]
-                        # 处理多余的tmp_out文件
                         if os.path.exists(tmp_out):
-                            os.unlink(tmp_out)
-                        self.app.show_qr_code(None, "", None, *image_tuples)
+                            try:
+                                os.unlink(tmp_out)
+                            except:
+                                pass
+                        continue
+                
+                # 如果所有尺寸都失败，显示提取的图片和错误信息
+                if not text:
+                    print("所有尺寸的水印提取都失败")
+                    if extracted_images:
+                        # 准备显示的图片列表
+                        images_to_show = []
+                        for size in sizes_to_try:
+                            if size in extracted_images:
+                                img, img_backup = extracted_images[size]
+                                # 如果需要显示原始图片且有备份，使用备份
+                                display_img = img_backup if (img_backup is not None and self.app.show_orignal_extract_picture.get()) else img
+                                images_to_show.append((f"{size}x{size}", display_img))
+                        
+                        if images_to_show:
+                            # 将图片对象转换为可序列化的元组格式
+                            image_tuples = [(size_str, np.array(img)) for size_str, img in images_to_show]
+                            # 处理多余的tmp_out文件
+                            if os.path.exists(tmp_out):
+                                os.unlink(tmp_out)
+                            self.app.show_qr_code(None, "", None, *image_tuples)
+                            
+                            # 清理备份图片
+                            for size, (img, img_backup) in extracted_images.items():
+                                if img_backup:
+                                    img_backup.close()
+                        else:
+                            messagebox.showerror("错误", "水印提取失败")
                     else:
                         messagebox.showerror("错误", "水印提取失败")
                     return
                 
-                # 显示提取的二维码水印
+                # 成功提取水印，显示结果
                 self.app.root.after(0, lambda: self.app.show_qr_code(tmp_out, text, True))
+                
+                # 清理其他尺寸的备份图片
+                for size, (img, img_backup) in extracted_images.items():
+                    if size != success_size and img_backup:
+                        img_backup.close()
+                        
             except Exception as e:
                 self.app.root.after(0, lambda e=e: messagebox.showerror("错误", f"提取水印失败: {str(e)}"))
             finally:

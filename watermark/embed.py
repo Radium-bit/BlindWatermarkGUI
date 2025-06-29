@@ -34,7 +34,7 @@ class WatermarkEmbedder:
             
             # 生成二维码
             qr = qrcode.QRCode(
-                version=1,
+                version=3,
                 error_correction=qrcode.constants.ERROR_CORRECT_M,
                 box_size=10,
                 border=1,
@@ -737,15 +737,11 @@ class WatermarkEmbedder:
                 self.app.root.after(0, lambda: self.app.show_processing_window("正在处理图片，请稍候..."))
                 output_dir = self.app.get_output_dir()
                 os.makedirs(output_dir, exist_ok=True)
-                # 生成二维码水印
-                # 先尝试128x128尺寸
-                qr_path = self.generate_qr_watermark(128)
-                if not qr_path:
-                    return
-                # 确保二维码文件存在
-                if not os.path.exists(qr_path):
-                    self.app.root.after(0, lambda: messagebox.showerror("错误", "二维码水印生成失败"))
-                    return
+                
+                # 定义要尝试的尺寸列表
+                sizes_to_try = [256, 128, 96, 64]
+                qr_path = None
+                success = False
                 
                 name, ext = os.path.splitext(os.path.basename(filepath))
                 # 读取图片
@@ -785,11 +781,6 @@ class WatermarkEmbedder:
                 with open(tmp_in, 'wb') as f:
                     image.save(f)
                 
-                # 确保二维码文件已关闭
-                if os.path.exists(qr_path):
-                    with open(qr_path, 'rb') as f:
-                        pass  # 确保文件已关闭
-                
                 wm_text = self.app.get_wm_text()
                 pwd = self.app.get_pwd()
 
@@ -815,34 +806,54 @@ class WatermarkEmbedder:
                     except Exception as e:
                         print(f"噪声处理失败: {e}")
 
-                # 先尝试128x128二维码嵌入
-                try:
-                    bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
-                    bwm1.read_img(tmp_in)
-                    bwm1.read_wm(qr_path)
-                    bwm1.embed(tmp_out)
-                except Exception as e:
-                    # 如果失败，尝试64x64尺寸
-                    if os.path.exists(qr_path):
-                        os.remove(qr_path)
-                    qr_path = self.generate_qr_watermark(64)
-                    if not qr_path:
-                        messagebox.showerror("错误", f"二维码生成失败: {str(e)}\n请尝试使用更小的水印尺寸")
-                        return
-                    
+                # 按顺序尝试不同尺寸的二维码嵌入
+                bwm1 = None
+                for size in sizes_to_try:
                     try:
+                        # 生成当前尺寸的二维码水印
+                        self.app.root.after(0, lambda s=size: self.app.show_processing_window(f"正在尝试{s}x{s}尺寸二维码，请稍候..."))
+                        qr_path = self.generate_qr_watermark(size)
+                        if not qr_path:
+                            print(f"尺寸{size}x{size}的二维码生成失败，尝试下一个尺寸")
+                            continue
+                        
+                        # 确保二维码文件存在
+                        if not os.path.exists(qr_path):
+                            print(f"尺寸{size}x{size}的二维码文件不存在，尝试下一个尺寸")
+                            continue
+                        
+                        # 确保二维码文件已关闭
+                        with open(qr_path, 'rb') as f:
+                            pass  # 确保文件已关闭
+                        
+                        # 尝试嵌入水印
                         bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
                         bwm1.read_img(tmp_in)
                         bwm1.read_wm(qr_path)
                         bwm1.embed(tmp_out)
-                    except Exception as e2:
-                        messagebox.showerror("错误", f"水印嵌入失败: {str(e2)}\n请尝试使用更小的水印尺寸")
-                        if os.path.exists(qr_path):
+                        
+                        # 如果执行到这里说明嵌入成功
+                        success = True
+                        print(f"使用{size}x{size}尺寸二维码嵌入成功")
+                        break
+                        
+                    except Exception as e:
+                        print(f"尺寸{size}x{size}嵌入失败: {str(e)}")
+                        # 清理当前尺寸的二维码文件
+                        if qr_path and os.path.exists(qr_path):
                             try:
-                                os.unlink(qr_path)
-                            except Exception as e:
-                                print(f"删除临时文件失败: {e}")
-                        return
+                                os.remove(qr_path)
+                            except:
+                                pass
+                        qr_path = None
+                        # 如果不是最后一个尺寸，继续尝试下一个
+                        if size != sizes_to_try[-1]:
+                            continue
+                
+                # 如果所有尺寸都失败了
+                if not success:
+                    self.app.root.after(0, lambda: messagebox.showerror("错误", "所有尺寸的水印嵌入都失败了\n请检查图片格式或尝试其他图片"))
+                    return
                 
                 # 延迟清理临时文件
                 if temp_img and os.path.exists(temp_img):
