@@ -382,7 +382,7 @@ def create_app_class():
             ## [DEBUG] 用于测试记录QReader所使用的隐藏导入模块
             # start_tracking()
             from qreader import QReader
-            self.qreader = QReader()
+            self.qreader = QReader(model_size='m', min_confidence=0.3, reencode_to='cp65001')
             
             # P5：初始化界面
             update_splash_status("构建用户界面...")
