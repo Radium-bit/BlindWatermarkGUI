@@ -34,7 +34,7 @@ class WatermarkEmbedder:
             
             # 生成二维码
             qr = qrcode.QRCode(
-                version=1,
+                version=4,
                 error_correction=qrcode.constants.ERROR_CORRECT_M,
                 box_size=10,
                 border=1,
@@ -982,3 +982,421 @@ class WatermarkEmbedder:
         
         # 隐藏处理窗口
         self.app.hide_processing_window()
+
+#====================3.x QR Embed Funcs========================
+
+    def check_qr_capacity(self, text, version, error_correction):
+        """检查QR码容量是否足够"""
+        
+        # QR码容量表 (字节)
+        capacity_table = {
+            (1, 'L'): 17, (1, 'M'): 14, (1, 'Q'): 11, (1, 'H'): 7,
+            (2, 'L'): 32, (2, 'M'): 26, (2, 'Q'): 20, (2, 'H'): 14,
+            (3, 'L'): 53, (3, 'M'): 42, (3, 'Q'): 32, (3, 'H'): 24,
+            (4, 'L'): 78, (4, 'M'): 62, (4, 'Q'): 46, (4, 'H'): 34,
+            (5, 'L'): 106, (5, 'M'): 84, (5, 'Q'): 60, (5, 'H'): 44,
+            (6, 'L'): 134, (6, 'M'): 106, (6, 'Q'): 74, (6, 'H'): 58,
+        }
+        
+        max_capacity = capacity_table.get((version, error_correction), 0)
+        text_bytes = len(text.encode('utf-8'))
+        
+        return text_bytes <= max_capacity
+
+
+    def embed_watermark_qr_direct(self, filepath):
+        """
+        使用QR码的直接水印嵌入方法
+        流程：原图 → 取得水印文字 → 自适应QRCode生成 → 容量检查 → 直接bit模式嵌入
+        
+        Args:
+            filepath (str): 主图片的文件路径
+        """
+        def worker():
+            tmp_in = None
+            tmp_out = None
+            temp_img_main = None
+            
+            try:
+                # 显示处理窗口
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在初始化，请稍候..."))
+                
+                # 获取水印文字
+                watermark_text = self.app.get_wm_text()
+                
+                # 准备输出目录和文件名
+                output_dir = self.app.get_output_dir()
+                os.makedirs(output_dir, exist_ok=True)
+                name, ext = os.path.splitext(os.path.basename(filepath))
+                
+                # 读取主图片
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在读取主图片，请稍候..."))
+                image = Image.open(filepath)
+                width, height = image.size
+                print(f"主图片尺寸: {width}x{height}")
+                
+                # JPG色彩空间处理
+                if self.app.output_format.get() == "JPG":
+                    if filepath.lower().endswith(('.jpg', '.jpeg')):
+                        if image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0':
+                            self.app.root.after(0, lambda: self.app.show_processing_window("正在转换主图片色彩空间，请稍候..."))
+                            start_time = time.time()
+                            image = image.convert('RGB')
+                            if time.time() - start_time > 1:
+                                self.app.root.after(0, lambda: messagebox.showinfo("色彩空间转换", "为确保兼容性，已将主图片色彩空间转换为sRGB 4:2:0"))
+                
+                # 创建临时文件
+                tmp_in = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
+                tmp_out = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
+                
+                # 处理主图片转换（如需要）
+                if self.app.output_format.get() == "JPG" and filepath.lower().endswith(('.jpg', '.jpeg')) and \
+                        (image.mode != 'RGB' or image.info.get('subsampling') != '4:2:0'):
+                    temp_img_main = os.path.join(os.path.dirname(filepath), "temp_converted_main_image.jpg")
+                    image.save(temp_img_main, "JPEG", subsampling="4:2:0", quality=100)
+                    image = Image.open(temp_img_main)
+                    width, height = image.size
+                
+                # 保存临时输入文件
+                with open(tmp_in, 'wb') as f:
+                    image.save(f)
+                
+                # 获取密码
+                pwd = self.app.get_pwd()
+                
+                # 增强模式处理
+                if self.app.enhanced_mode.get():
+                    try:
+                        self.app.root.after(0, lambda: self.app.show_processing_window("正在应用增强模式，请稍候..."))
+                        img = Image.open(tmp_in).convert("RGB")
+                        arr = np.array(img).astype(np.float32)
+                        print("Using Enhanced Mode...")
+                        
+                        # 生成2D柏林噪声
+                        noise = np.zeros((arr.shape[0], arr.shape[1]), dtype=np.float32)
+                        for i in range(arr.shape[0]):
+                            for j in range(arr.shape[1]):
+                                noise[i][j] = pnoise2(i / 50.0, j / 50.0, octaves=2)
+                        
+                        # 扩展到3D通道
+                        noise_3d = np.repeat(noise[:, :, np.newaxis], 3, axis=2)
+                        arr += noise_3d * 12.8
+                        arr = np.clip(arr, 0, 255).astype(np.uint8)
+                        Image.fromarray(arr).save(tmp_in)
+                    except Exception as e:
+                        print(f"增强模式处理失败: {e}")
+                
+                # ========== 获取图像可用容量开始 ==========
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在计算图像容量，请稍候..."))
+                
+                try:
+                    bwm_temp = WaterMark(password_img=int(pwd), password_wm=int(pwd))
+                    bwm_temp.read_img(tmp_in)
+                    
+                    try:
+                        bwm_temp.bwm_core.init_block_index()
+                        available_capacity = bwm_temp.bwm_core.block_num
+                        capacity_method = "精确计算"
+                    except AttributeError:
+                        available_capacity = int(width * height * 0.25)
+                        capacity_method = "估算"
+                    
+                    print(f"图像可用容量({capacity_method}): {available_capacity} 比特")
+                    
+                except Exception as e:
+                    print(f"获取容量信息失败: {e}")
+                    available_capacity = int(width * height * 0.25)
+                    capacity_method = "基本估算"
+                    print(f"使用基本估算容量: {available_capacity} 比特")
+                # ========== 获取图像可用容量结束 ==========
+                
+                # ========== 自适应QR码生成开始 ==========
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在生成自适应QR码，请稍候..."))
+                
+                # 自适应选择QR码参数，根据可用容量
+                qr_versions = [1, 2, 3, 4, 5, 6]  # 支持的QR码版本
+                error_corrections = ['L', 'M', 'Q', 'H']  # 纠错等级，从低到高
+                
+                bit_array = None
+                qr_config = None
+                selected_params = None
+                
+                # 计算合适的QR码尺寸，确保不超过容量
+                max_qr_size = int(available_capacity ** 0.5)  # 最大可能的正方形尺寸
+                print(f"根据容量计算的最大QR码尺寸: {max_qr_size}×{max_qr_size}")
+                
+                # 尝试不同的QR码参数组合，找到合适的就停止
+                best_bit_array = None
+                best_qr_config = None
+                best_selected_params = None
+                best_utilization = 0
+                target_utilization = 90.0  # 目标利用率90%，达到就停止
+                
+                for version in qr_versions:
+                    if best_utilization >= target_utilization:
+                        print(f"已达到目标利用率 {target_utilization}%，停止搜索")
+                        break
+                        
+                    for error_correction in error_corrections:
+                        if self.check_qr_capacity(watermark_text, version, error_correction):
+                            # 计算这个版本的理论尺寸
+                            qr_modules = (version - 1) * 4 + 21
+                            
+                            print(f"尝试 V{version}+{error_correction}: QR模块={qr_modules}×{qr_modules}")
+                            
+                            # 计算合适的目标尺寸：在容量范围内尽可能大
+                            target_bits = int(available_capacity * target_utilization)
+                            target_size = int(target_bits ** 0.5)
+                            
+                            # 确保不小于QR码的最小尺寸
+                            min_size = qr_modules + 2  # 最小尺寸
+                            target_size = max(target_size, min_size)
+                            target_size = min(target_size, max_qr_size)  # 不超过最大尺寸
+                            
+                            print(f"目标尺寸: {target_size}×{target_size} (目标比特数: {target_bits})")
+                            
+                            # 生成QR码
+                            bit_array, qr_config = self.generate_watermark_qr_bit_direct(
+                                watermark_text, size=target_size, version=version, error_correction=error_correction
+                            )
+                            
+                            if bit_array is not None:
+                                qr_bit_count = len(bit_array)
+                                utilization = (qr_bit_count / available_capacity) * 100
+                                
+                                print(f"生成结果: V{version}+{error_correction}, 实际尺寸: {qr_config['size']}×{qr_config['size']}")
+                                print(f"比特数: {qr_bit_count}, 容量利用率: {utilization:.1f}%")
+                                
+                                if qr_bit_count <= available_capacity:
+                                    # 如果容量利用率更高，则选择这个
+                                    if utilization > best_utilization:
+                                        best_bit_array = bit_array
+                                        best_qr_config = qr_config
+                                        best_selected_params = f"V{version}+{error_correction}"
+                                        best_utilization = utilization
+                                        print(f"更新最佳选择: {best_selected_params}, 利用率: {best_utilization:.1f}%")
+                                        
+                                        # 如果达到目标利用率，提前停止
+                                        if best_utilization >= target_utilization:
+                                            print(f"达到目标利用率 {target_utilization}%，提前结束搜索")
+                                            break
+                                else:
+                                    print(f"超出容量，跳过")
+                        
+                        # 如果内层循环提前结束，外层也要结束
+                        if best_utilization >= target_utilization:
+                            break
+                
+                # 使用最佳选择
+                if best_bit_array is not None:
+                    bit_array = best_bit_array
+                    qr_config = best_qr_config
+                    selected_params = best_selected_params
+                    print(f"最终选择: {selected_params}, 尺寸: {qr_config['size']}×{qr_config['size']}, 利用率: {best_utilization:.1f}%")
+                else:
+                    bit_array = None
+                
+                if bit_array is None:
+                    error_msg = f"无法为文字 '{watermark_text}' 生成适合容量的QR码\n\n可用容量: {available_capacity} 比特\n\n请尝试：\n1. 使用更短的水印文字\n2. 使用更大的图片"
+                    self.app.root.after(0, lambda: messagebox.showerror("QR码生成失败", error_msg))
+                    self.app.root.after(0, self.app.hide_processing_window)
+                    return
+                
+                wm_len = len(bit_array)
+                print(f"最终QR码生成成功: {wm_len} 比特")
+                # ========== 自适应QR码生成结束 ==========
+                
+                # ========== 水印嵌入开始 ==========
+                self.app.root.after(0, lambda: self.app.show_processing_window("正在嵌入QR码水印，请稍候..."))
+                
+                try:
+                    bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
+                    bwm1.read_img(tmp_in)
+                    bwm1.read_wm(bit_array, mode='bit')
+                    bwm1.embed(tmp_out)
+                except Exception as e:
+                    self.app.root.after(0, lambda error_msg=e: messagebox.showerror("错误", f"水印嵌入失败: {str(error_msg)}\n请尝试使用更短的水印文字或更大的主图片"))
+                    return
+                # ========== 水印嵌入结束 ==========
+                
+                # 保存输出文件
+                output_ext = ".jpg" if self.app.output_format.get() == "JPG" else ext
+                
+                qr_info = f"QR{selected_params}" if selected_params else "QR"
+                dst_img = os.path.join(
+                    os.path.dirname(filepath),
+                    f"{name}-Watermark3-{qr_info}-ws{wm_len}-{width}x{height}{output_ext}"
+                )
+                
+                if self.app.output_format.get() == "JPG":
+                    srgb_profile = ImageCms.createProfile("sRGB")
+                    img_to_save = Image.open(tmp_out).convert('RGB')
+                    img_to_save.save(dst_img, "JPEG", quality=100, subsampling="4:2:0",
+                                    icc_profile=ImageCms.ImageCmsProfile(srgb_profile).tobytes())
+                else:
+                    shutil.copy2(tmp_out, dst_img)
+                
+                # 隐藏处理窗口
+                self.app.root.after(0, self.app.hide_processing_window)
+                
+                # 显示成功信息
+                capacity_utilization = (wm_len / available_capacity) * 100 if available_capacity > 0 else 0
+                
+                success_message = f"""QR码水印嵌入成功！
+
+    输出文件：{dst_img}
+
+    水印信息：
+    • QR码参数：{selected_params} ({qr_config['size']}×{qr_config['size']})
+    • 编码方式：Bit嵌入
+
+    数据统计：
+    • QR码比特数：{wm_len} 比特
+    • 图像尺寸：{width}×{height}
+    • 可用容量：{available_capacity} 比特
+    • 容量利用率：{capacity_utilization:.1f}%
+
+    优势：
+    • 无编码开销，数据量最小
+    • 1-bit黑白图像，质量最佳
+    • 快速嵌入和提取
+
+    提示：使用相同密码可以从图片中提取QR码"""
+                
+                self.app.root.after(0, lambda: messagebox.showinfo("嵌入成功", success_message))
+                
+            except Exception as e:
+                self.app.root.after(0, lambda e_val=e: messagebox.showerror("错误", f"处理过程中发生错误：{str(e_val)}"))
+            finally:
+                # 清理临时文件
+                self.app.root.after(0, self.app.hide_processing_window)
+                for f in [tmp_in, tmp_out, temp_img_main]:
+                    if f and os.path.exists(f):
+                        try:
+                            os.remove(f)
+                            print(f"已清理临时文件: {f}")
+                        except Exception as cleanup_e:
+                            print(f"清理临时文件失败 {f}: {cleanup_e}")
+        
+        # 启动工作线程
+        threading.Thread(target=worker, daemon=True).start()
+        self.app.hide_processing_window()
+
+
+    def generate_watermark_qr_bit_direct(self, text, size=128, version=4, error_correction='H'):
+        """生成1-bit黑白QR码并转换为bit数组，用于直接bit模式嵌入
+    
+        Args:
+            text: 要编码的文本
+            size: QR码目标尺寸
+            version: QR码版本
+            error_correction: 纠错等级
+    
+        Returns:
+            tuple: (bit_array_list, qr_config) 或 (None, None)
+        """
+    
+        error_correction_map = {
+            'L': qrcode.constants.ERROR_CORRECT_L,
+            'M': qrcode.constants.ERROR_CORRECT_M,
+            'Q': qrcode.constants.ERROR_CORRECT_Q,
+            'H': qrcode.constants.ERROR_CORRECT_H
+        }
+    
+        try:
+            print(f"生成直接嵌入QR码: {size}×{size}, V{version}+{error_correction}")
+        
+            # 检查QR码容量
+            if not self.check_qr_capacity(text, version, error_correction):
+                print(f"文本超出V{version}+{error_correction}容量限制")
+                return None, None
+            
+            # 计算QR码的实际模块尺寸
+            qr_modules = (version - 1) * 4 + 21
+            
+            # 计算最佳的box_size和border组合
+            best_box_size = 1
+            best_border = 1
+            best_actual_size = 0
+            
+            # 尝试不同的border值
+            for border in [1, 2, 3, 4]:
+                total_modules = qr_modules + 2 * border
+                box_size = size // total_modules
+                
+                if box_size >= 1:
+                    actual_size = total_modules * box_size
+                    if abs(actual_size - size) < abs(best_actual_size - size):
+                        best_box_size = box_size
+                        best_border = border
+                        best_actual_size = actual_size
+            
+            print(f"QR参数: 模块={qr_modules}, box_size={best_box_size}, border={best_border}, 实际尺寸={best_actual_size}")
+        
+            # 生成QR码
+            qr = qrcode.QRCode(
+                version=version,
+                error_correction=error_correction_map[error_correction],
+                box_size=best_box_size,
+                border=best_border,
+            )
+        
+            qr.add_data(text)
+            qr.make(fit=True)
+        
+            # 生成1-bit黑白图像
+            img = qr.make_image(fill_color="black", back_color="white")
+            
+            print(f"QR码生成: 尺寸={img.size}, 模式={img.mode}")
+            
+            # 确保是1-bit模式
+            if img.mode != '1':
+                print(f"转换图像模式从 {img.mode} 到 1")
+                img = img.convert('1')  # 转换为1-bit黑白图像
+            
+            actual_width, actual_height = img.size
+            
+            # 转换为numpy数组
+            img_array = np.array(img, dtype=bool)
+            print(f"numpy数组: 形状={img_array.shape}, 数据类型={img_array.dtype}")
+        
+            # 对于1-bit图像，True=白色，False=黑色
+            # 我们需要黑色=True，所以要反转
+            bit_array = ~img_array  # 反转：黑色=True，白色=False
+        
+            # 验证转换结果
+            print(f"True像素(黑色): {np.sum(bit_array)}")
+            print(f"False像素(白色): {np.sum(~bit_array)}")
+        
+            # 展平为一维数组并转为Python列表
+            bit_array_1d = bit_array.flatten().tolist()
+        
+            # 配置信息
+            qr_config = {
+                'size': actual_width,  # 使用实际尺寸
+                'version': version,
+                'error_correction': error_correction,
+                'bit_count': len(bit_array_1d),
+                'box_size': best_box_size,
+                'border': best_border,
+                'qr_modules': qr_modules,
+                'mode': '1-bit'
+            }
+        
+            print(f"QR码bit数组生成成功:")
+            print(f"  实际尺寸: {actual_width}×{actual_height}")
+            print(f"  位数: {len(bit_array_1d):,}位")
+            print(f"  黑色模块: {sum(bit_array_1d):,}个 ({sum(bit_array_1d)/len(bit_array_1d)*100:.1f}%)")
+            
+            # 保存调试图像（目前注释掉不保存）
+            # debug_path = f"DEBUG_QR_Direct_{actual_width}x{actual_height}_V{version}+{error_correction}.png"
+            # img.save(debug_path)
+            # print(f"调试：QR码已保存到 {debug_path}")
+        
+            return bit_array_1d, qr_config
+        
+        except Exception as e:
+            print(f"QR码bit数组生成失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None, None

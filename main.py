@@ -382,7 +382,7 @@ def create_app_class():
             ## [DEBUG] 用于测试记录QReader所使用的隐藏导入模块
             # start_tracking()
             from qreader import QReader
-            self.qreader = QReader()
+            self.qreader = QReader(model_size='l', reencode_to='cp65001', min_confidence=0.3)
             
             # P5：初始化界面
             update_splash_status("构建用户界面...")
@@ -499,7 +499,7 @@ def create_app_class():
             self.algorithm_frame.pack(pady=2, fill="x", anchor="nw", padx=20)
             self.algorithm_version.trace_add('write', self.on_algorithm_version_change)
             tk.Label(self.algorithm_frame, text="算法版本:", bg="white").pack(side="left")
-            tk.Radiobutton(self.algorithm_frame, text="v3", variable=self.algorithm_version, value=3, bg="white") #先不显示等v3做出来先
+            tk.Radiobutton(self.algorithm_frame, text="v3", variable=self.algorithm_version, value=3, bg="white").pack(side="left", padx=5)
             tk.Radiobutton(self.algorithm_frame, text="v2", variable=self.algorithm_version, value=2, bg="white").pack(side="left", padx=5)
             tk.Radiobutton(self.algorithm_frame, text="v1", variable=self.algorithm_version, value=1, bg="white").pack(side="left", padx=5)
 
@@ -649,6 +649,9 @@ def create_app_class():
             elif selected_version == 2:
                 self.compatibility_mode.set(False)
                 self.toggle_compatibility_mode()
+            elif selected_version == 3:
+                self.compatibility_mode.set(True)
+                self.toggle_compatibility_mode()
 
         def on_mode_change(self,*args):
             self.toggle_extract_mode_selection()
@@ -689,38 +692,77 @@ def create_app_class():
                     if not os.path.exists(f):
                         messagebox.showerror("错误", "文件不存在或路径无效")
                         return
-                        
+                    
                     if self.mode.get() == "embed":
-                        if self.compatibility_mode.get():
+                        # 获取选择的算法版本
+                        selected_version = int(self.algorithm_version.get())
+                        
+                        if selected_version == 1:
+                            # 版本1：兼容模式
                             self.embedder.embed_watermark_v013(f)
-                        elif self.is_custom_file.get():
-                            # 检测自定义文件是否为图像文件
-                            custom_file_path = self.custom_data.get()
+                        elif selected_version == 2:
+                            # 版本2：目前直接进入的逻辑
+                            if self.is_custom_file.get():
+                                # 检测自定义文件是否为图像文件
+                                custom_file_path = self.custom_data.get()
                             
-                            # 定义支持的图像文件扩展名
-                            image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif', '.webp'}
+                                # 定义支持的图像文件扩展名
+                                image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif', '.webp'}
                             
-                            # 获取文件扩展名并转为小写
-                            _, file_ext = os.path.splitext(custom_file_path)
-                            file_ext_lower = file_ext.lower()
+                                # 获取文件扩展名并转为小写
+                                _, file_ext = os.path.splitext(custom_file_path)
+                                file_ext_lower = file_ext.lower()
                             
-                            # 判断是否为图像文件
-                            if file_ext_lower in image_extensions:
-                                # 是图像文件，调用图像水印嵌入方法
-                                self.embedder.embed_watermark_custom_image(f, custom_file_path)
+                                # 判断是否为图像文件
+                                if file_ext_lower in image_extensions:
+                                    # 是图像文件，调用图像水印嵌入方法
+                                    self.embedder.embed_watermark_custom_image(f, custom_file_path)
+                                else:
+                                    # 不是图像文件，调用二进制文件水印嵌入方法
+                                    self.embedder.embed_watermark_custom_binary_with_rc1(f, custom_file_path)
                             else:
-                                # 不是图像文件，调用二进制文件水印嵌入方法
-                                # self.embedder.embed_watermark_custom_binary(f, custom_file_path)
-                                self.embedder.embed_watermark_custom_binary_with_rc1(f,custom_file_path)
-                        else:
-                            self.embedder.embed_watermark(f)
+                                self.embedder.embed_watermark(f)
+                        elif selected_version == 3:
+                            # 版本3：复制版本2的逻辑，便于后期更改
+                            if self.is_custom_file.get():
+                                # 检测自定义文件是否为图像文件
+                                custom_file_path = self.custom_data.get()
+                            
+                                # 定义支持的图像文件扩展名
+                                image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif', '.webp'}
+                            
+                                # 获取文件扩展名并转为小写
+                                _, file_ext = os.path.splitext(custom_file_path)
+                                file_ext_lower = file_ext.lower()
+                            
+                                # 判断是否为图像文件
+                                if file_ext_lower in image_extensions:
+                                    # 是图像文件，调用图像水印嵌入方法
+                                    self.embedder.embed_watermark_custom_image(f, custom_file_path)
+                                else:
+                                    # 不是图像文件，调用二进制文件水印嵌入方法
+                                    self.embedder.embed_watermark_custom_binary_with_rc1(f, custom_file_path)
+                            else:
+                                self.embedder.embed_watermark_qr_direct(f)
                     else:
-                        if self.compatibility_mode.get():
+                        # 提取模式：根据版本进行区分
+                        selected_version = int(self.algorithm_version.get())
+                        
+                        if selected_version == 1:
+                            # 版本1：兼容模式提取
                             self.extractor.extract_watermark_v013(f)
-                        elif self.extract_mode.get() == "file":
-                            self.extractor.extract_watermark_bit_advanced_with_rc1(f,use_rc1_flag=True)
-                        else:
-                            self.extractor.extract_watermark(f)
+                        elif selected_version == 2:
+                            # 版本2：当前提取逻辑
+                            if self.extract_mode.get() == "file":
+                                self.extractor.extract_watermark_bit_advanced_with_rc1(f, use_rc1_flag=True)
+                            else:
+                                self.extractor.extract_watermark(f)
+                        elif selected_version == 3:
+                            # 版本3：复制版本2的逻辑，便于后期更改
+                            if self.extract_mode.get() == "file":
+                                self.extractor.extract_watermark_bit_advanced_with_rc1(f, use_rc1_flag=True)
+                            else:
+                                self.extractor.extract_watermark_qr_bit_direct(f)
                 except Exception as e:
                     messagebox.showerror("错误", str(e))
                     # 确保处理窗口关闭
@@ -979,6 +1021,8 @@ def create_app_class():
                     messagebox.showwarning("提示", "增强模式会轻微降低图像质量！\n但可提高抗干扰能力，\n请确保您的图片不会丢失重要信息。")
 
         def show_compatibility_info(self):
+            if int(self.algorithm_version.get()) == 3:
+                return
             """显示兼容模式信息（不触发输入框显示/隐藏）"""
             from tkinter import messagebox
             if self.compatibility_mode.get():
