@@ -382,7 +382,7 @@ def create_app_class():
             ## [DEBUG] 用于测试记录QReader所使用的隐藏导入模块
             # start_tracking()
             from qreader import QReader
-            self.qreader = QReader(model_size='m', min_confidence=0.3, reencode_to='cp65001')
+            self.qreader = QReader(model_size='l', min_confidence=0.3, reencode_to='cp65001')
             
             # P5：初始化界面
             update_splash_status("构建用户界面...")
@@ -439,6 +439,7 @@ def create_app_class():
             
             placeholder_frame = tk.Frame(horizontal_frame, bg="white")  # 透明占位
             placeholder_frame.pack(side="right", anchor="ne", pady=30)
+            self.formart_and_extract_frame = tk.Frame(self.root, bg="white")
             self.format_frame = tk.Frame(self.root, bg="white")
             self.frm_extract_mode = tk.Frame(self.root, bg="white")
             self.algorithm_frame = tk.Frame(self.root, bg="white")
@@ -468,11 +469,11 @@ def create_app_class():
             )
             self.show_orignal_extract_picture_check.pack(anchor='e')
 
-            # 嵌入自定图片
+            # 使用自定水印文件
             self.is_custom_file = BooleanVar(value=False)
             self.custom_check = Checkbutton(
                 options_frame_down, 
-                text="嵌入自定水印",
+                text="使用自定水印",
                 variable=self.is_custom_file,
                 command=self.toggle_custom_data_input_frame
             )
@@ -625,6 +626,9 @@ def create_app_class():
                 print("extract mode.")
                 self.frm_extract_mode.pack(pady=2, fill="x", anchor="nw", padx=20, before=self.algorithm_frame)
                 self.format_frame.pack_forget()
+                # 重新渲染以防止覆盖复选框
+                self.custom_check.pack_forget()
+                self.custom_check.pack(anchor='e',pady=(0,2))
             else:
                 self.format_frame.pack(pady=2, fill="x", anchor="nw", padx=20, before=self.algorithm_frame)
                 self.frm_extract_mode.pack_forget()
@@ -825,21 +829,30 @@ def create_app_class():
         def show_processing_window(self, message):
             """显示处理中窗口"""
             import tkinter as tk
+            
             if not self.processing_window:
+                # 第一次创建窗口
                 self.processing_window = tk.Toplevel(self.root)
                 self.processing_window.title("处理中")
                 self.processing_window.geometry("300x100")
                 self.processing_window.resizable(False, False)
                 self.processing_window.protocol("WM_DELETE_WINDOW", lambda: None)  # 禁用关闭按钮
-                
+            
                 self.processing_label = tk.Label(self.processing_window, text=message)
                 self.processing_label.pack(pady=10)
-                
+            
                 # 简单的动画效果
                 self.processing_animation = tk.Label(self.processing_window, text="◐")
                 self.processing_animation.pack()
                 self.animate_processing()
+            else:
+                # 窗口已存在，只更新文本内容
+                self.processing_label.config(text=message)
                 
+                # 确保窗口显示在前面
+                self.processing_window.lift()
+                self.processing_window.focus_force()
+            
             self.processing_active = True
         
         def hide_processing_window(self):
@@ -856,15 +869,14 @@ def create_app_class():
             # if self.qr_window:
             #     self.qr_window.destroy()
             # 每次调用都创建一个新的 Toplevel 窗口实例
-            
+        
             new_qr_window = tk.Toplevel(self.root)
             new_qr_window.title("水印提取结果")
             new_qr_window.geometry("600x700")
-            
+        
             # 清理文件回调
             def cleanup_callback():
                 return True
-
             # 添加窗口关闭事件处理
             def on_close_show_qr_window():
                 if qr_path and os.path.exists(qr_path):
@@ -875,19 +887,69 @@ def create_app_class():
                         return cleanup_callback
                         pass
                 new_qr_window.destroy()
-                
-            new_qr_window.protocol("WM_DELETE_WINDOW", on_close_show_qr_window)
             
+            new_qr_window.protocol("WM_DELETE_WINDOW", on_close_show_qr_window)
+        
             # 显示状态标题
             if status==True:
                 tk.Label(new_qr_window, text="水印提取成功", font=("Arial", 12, "bold")).pack()
             else:
                 tk.Label(new_qr_window, text="水印未提取到文本，请检查是否存在二维码 或 图像", font=("Arial", 12, "bold")).pack()
-            
+        
             # 处理传入的图片
             if images:
-                for img_data in images:
-                    if img_data is not None:
+                # 计算有效图片数量
+                valid_images = [img_data for img_data in images if img_data is not None]
+                image_count = len(valid_images)
+                
+                if image_count > 2:
+                    # 使用网格布局 - 每列最多2个图片
+                    cols = (image_count + 1) // 2  # 计算需要的列数
+                    
+                    # 创建一个frame来容纳所有图片
+                    img_frame = tk.Frame(new_qr_window)
+                    img_frame.pack(pady=10)
+                    
+                    row, col = 0, 0
+                    for img_data in valid_images:
+                        size, img_array = img_data
+                        # 将numpy数组转换回PIL Image
+                        img = imported_modules['Image'].fromarray(img_array)
+                        # 对小于256的图片进行放大
+                        if max(img.size) < 256:
+                            scale = 256 / max(img.size)
+                            new_size = (int(img.size[0] * scale), int(img.size[1] * scale))
+                            img = img.resize(new_size, imported_modules['Image'].Resampling.LANCZOS)
+                        
+                        img_tk = imported_modules['ImageTk'].PhotoImage(img)
+                        
+                        # 创建一个子frame来包含图片和尺寸标签
+                        sub_frame = tk.Frame(img_frame)
+                        sub_frame.grid(row=row, column=col, padx=10, pady=5)
+                        
+                        # 图片标签
+                        label = tk.Label(sub_frame, image=img_tk)
+                        label.image = img_tk  # 保持引用
+                        label.pack()
+                        
+                        # 显示尺寸标签
+                        tk.Label(sub_frame, text=f"尺寸: {size}", font=("Arial", 9)).pack(pady=2)
+                        
+                        # 更新网格位置
+                        row += 1
+                        if row >= 2:  # 每列最多2个图片
+                            row = 0
+                            col += 1
+                    
+                    # 根据列数调整窗口宽度
+                    base_width = 400
+                    extra_width = (cols - 1) * 300  # 每额外一列增加300像素
+                    new_width = min(base_width + extra_width, 1200)  # 限制最大宽度
+                    new_qr_window.geometry(f"{new_width}x700")
+                    
+                else:
+                    # 图片数量<=2，使用原来的垂直pack布局
+                    for img_data in valid_images:
                         size, img_array = img_data
                         # 将numpy数组转换回PIL Image
                         img = imported_modules['Image'].fromarray(img_array)
@@ -902,6 +964,7 @@ def create_app_class():
                         label.pack(pady=5)
                         # 显示尺寸标签
                         tk.Label(new_qr_window, text=f"尺寸: {size}").pack()
+                        
             elif qr_path:
                 try:
                     img = imported_modules['Image'].open(qr_path)
@@ -911,14 +974,15 @@ def create_app_class():
                     label.pack(pady=5)
                 except Exception as e:
                     messagebox.showerror("错误", f"无法显示图片: {str(e)}")
+                    
             # 显示解码文本（如果有）
             if text:
                 tk.Label(new_qr_window, text="解码文本:", font=("Arial", 10, "bold")).pack()
                 text_label = tk.Label(new_qr_window, text=text, wraplength=380, justify="left")
                 text_label.pack(pady=5)
-            
+        
             # 关闭按钮
-            close_btn = tk.Button(new_qr_window, text="关闭", 
+            close_btn = tk.Button(new_qr_window, text="关闭",
                                 command=lambda: [os.unlink(qr_path) if qr_path and os.path.exists(qr_path) else None,
                                 new_qr_window.destroy()])
             close_btn.pack(pady=10)

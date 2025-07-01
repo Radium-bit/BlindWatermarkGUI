@@ -34,14 +34,14 @@ class WatermarkEmbedder:
             
             # 生成二维码
             qr = qrcode.QRCode(
-                version=3,
+                version=1,
                 error_correction=qrcode.constants.ERROR_CORRECT_M,
                 box_size=10,
                 border=1,
             )
             qr.add_data(wm_text)
             qr.make(fit=True)
-            img = qr.make_image(fill_color="black", back_color="white")            
+            img = qr.make_image(fill_color="white", back_color="black")            
             # 调整二维码尺寸
             img = img.resize((size, size), Image.LANCZOS)
             # 保存为JPG（缩减体积）
@@ -51,6 +51,52 @@ class WatermarkEmbedder:
         except Exception as e:
             messagebox.showerror("错误", f"生成二维码失败: {str(e)}")
             return None
+
+    def check_resolution_upgrade_suggestion(self, width, height):
+        """
+        检查是否需要建议用户提升分辨率以增加水印容量
+    
+        Args:
+            width: 图片宽度
+            height: 图片高度
+    
+        Returns:
+            tuple: (是否建议提升, 提升倍数, 新尺寸)
+        """
+        # 增强模式下的特殊处理
+        if self.app.enhanced_mode.get():
+            # 检查是否有大于1600的边，如果有，把长边控制在1600以内
+            max_dimension = max(width, height)
+            if max_dimension > 1600:
+                # 计算缩放倍数，使最长边控制在1580以内
+                target_size = 1580
+                scale_factor = target_size / max_dimension
+                
+                # 计算新的尺寸（保持比例）
+                new_width = int(width * scale_factor)
+                new_height = int(height * scale_factor)
+                
+                return True, scale_factor, (new_width, new_height)
+        
+        # 检查是否两个维度都小于1600
+        if width < 1600 and height < 1600:
+            # 找到较长的边
+            max_dimension = max(width, height)
+        
+            # 计算缩放倍数，使最长边接近但小于1600
+            # 目标尺寸设为1580，留一些余量
+            target_size = 1580
+            scale_factor = target_size / max_dimension
+        
+            # 计算新的尺寸（保持比例）
+            new_width = int(width * scale_factor)
+            new_height = int(height * scale_factor)
+        
+            # 确保缩放后的尺寸确实有改善（至少放大了1.2倍）
+            if scale_factor >= 1.2:
+                return True, scale_factor, (new_width, new_height)
+    
+        return False, 1.0, (width, height)
 
     def process_image_pre_watermark(self, image_path, target_size):
         """
@@ -109,6 +155,27 @@ class WatermarkEmbedder:
                 image = Image.open(filepath)
                 width, height = image.size
 
+                # ========== 分辨率提升建议 ==========
+                # 检查是否需要提升分辨率以增加水印容量
+                should_upscale, scale_factor, new_size = self.check_resolution_upgrade_suggestion(width, height)
+                if should_upscale:
+                    # 根据缩放倍数确定操作类型
+                    operation = "提升" if scale_factor > 1 else "缩小"
+                    
+                    upgrade_msg = (
+                        f"检测到当前图片分辨率为 {width}x{height}\n"
+                        f"建议将分辨率{operation} {scale_factor:.2f}x 至 {new_size[0]}x{new_size[1]}\n"
+                        f"这样可以嵌入更多的水印副本，提高抗攻击能力。\n\n"
+                        f"是否现在进行分辨率{operation}？"
+                    )
+                    
+                    if messagebox.askyesno("分辨率提升建议", upgrade_msg):
+                        self.app.root.after(0, lambda: self.app.show_processing_window("正在提升图片分辨率，请稍候..."))
+                        image = image.resize(new_size, Image.LANCZOS)
+                        width, height = new_size
+                        print(f"分辨率已提升至: {width}x{height} (提升倍数: {scale_factor}x)")
+                # ========== 分辨率提升建议结束 ==========
+
                 # 检查并转换主图片的 JPG 色彩空间(仅当输出格式为JPG时)
                 if self.app.output_format.get() == "JPG":
                     if filepath.lower().endswith(('.jpg', '.jpeg')):
@@ -124,17 +191,9 @@ class WatermarkEmbedder:
                             else:
                                 self.app.root.after(0, self.app.hide_processing_window)
 
-                # --- 处理 w_filepath (水印图片) ---
-                # 先尝试 128x128 尺寸
-                current_w_target_size = 128
-                processed_w_image = self.process_image_pre_watermark(w_filepath, current_w_target_size)
-                if not processed_w_image:
-                    return # 如果处理失败，直接返回
-
-                # 保存处理后的水印图片到临时文件
-                processed_w_filepath = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False).name
-                processed_w_image.save(processed_w_filepath)
-
+                # 定义要尝试的尺寸列表
+                sizes_to_try = [256, 128, 96, 64]
+                
                 # 定义所有临时文件变量
                 tmp_in = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
                 tmp_out = tempfile.NamedTemporaryFile(suffix=ext, delete=False).name
@@ -175,37 +234,60 @@ class WatermarkEmbedder:
                     except Exception as e:
                         print(f"噪声处理失败: {e}")
 
-                # 尝试水印嵌入
-                try:
-                    bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
-                    bwm1.read_img(tmp_in) # 读取主图片
-                    bwm1.read_wm(processed_w_filepath) # 读取处理后的水印图片
-                    bwm1.embed(tmp_out) # 嵌入水印
-                except Exception as e:
-                    # 如果首次嵌入失败 (128x128 尺寸)，尝试 64x64 尺寸
-                    if processed_w_filepath and os.path.exists(processed_w_filepath):
-                        os.remove(processed_w_filepath) # 删除之前的临时水印文件
-
-                    current_w_target_size = 64 # 尝试 64x64 尺寸
-                    processed_w_image = self.process_image_pre_watermark(w_filepath, current_w_target_size)
-                    if not processed_w_image:
-                        # 如果 64x64 处理也失败，则报错并返回
-                        self.app.root.after(0, lambda error_msg=e: messagebox.showerror("错误", f"水印图像处理失败: {str(error_msg)}\n请尝试使用更小的水印尺寸"))
-                        return
-
-                    # 保存新的处理后的水印图片到临时文件
-                    processed_w_filepath = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
-                    processed_w_image.save(processed_w_filepath)
-
+                # 按顺序尝试不同尺寸的水印嵌入
+                success = False
+                bwm1 = None
+                
+                for current_w_target_size in sizes_to_try:
                     try:
+                        # 显示当前尝试的尺寸
+                        self.app.root.after(0, lambda s=current_w_target_size: self.app.show_processing_window(f"正在尝试{s}x{s}尺寸水印，请稍候..."))
+                        print(f"尝试{current_w_target_size}x{current_w_target_size}尺寸水印嵌入")
+                        
+                        # 清理之前的水印文件
+                        if processed_w_filepath and os.path.exists(processed_w_filepath):
+                            os.remove(processed_w_filepath)
+                            processed_w_filepath = None
+                        
+                        # 处理水印图片
+                        processed_w_image = self.process_image_pre_watermark(w_filepath, current_w_target_size)
+                        if not processed_w_image:
+                            print(f"{current_w_target_size}x{current_w_target_size}水印图片处理失败，尝试下一个尺寸")
+                            continue
+                        
+                        # 保存处理后的水印图片到临时文件
+                        processed_w_filepath = tempfile.NamedTemporaryFile(suffix=".png", delete=False).name
+                        processed_w_image.save(processed_w_filepath)
+                        
+                        # 尝试水印嵌入
                         bwm1 = WaterMark(password_img=int(pwd), password_wm=int(pwd))
-                        bwm1.read_img(tmp_in)
-                        bwm1.read_wm(processed_w_filepath) # 使用新的处理后的水印图片
-                        bwm1.embed(tmp_out)
-                    except Exception as e2:
-                        # 如果第二次嵌入也失败，则报错并返回
-                        self.app.root.after(0, lambda: messagebox.showerror("错误", f"水印嵌入失败: {str(e2)}\n请尝试使用更小的水印尺寸"))
-                        return
+                        bwm1.read_img(tmp_in) # 读取主图片
+                        bwm1.read_wm(processed_w_filepath) # 读取处理后的水印图片
+                        bwm1.embed(tmp_out) # 嵌入水印
+                        
+                        # 如果执行到这里说明嵌入成功
+                        success = True
+                        print(f"使用{current_w_target_size}x{current_w_target_size}尺寸水印嵌入成功")
+                        break
+                        
+                    except Exception as e:
+                        print(f"{current_w_target_size}x{current_w_target_size}尺寸水印嵌入失败: {str(e)}")
+                        # 清理当前尺寸的水印文件
+                        if processed_w_filepath and os.path.exists(processed_w_filepath):
+                            try:
+                                os.remove(processed_w_filepath)
+                            except:
+                                pass
+                            processed_w_filepath = None
+                        
+                        # 如果不是最后一个尺寸，继续尝试下一个
+                        if current_w_target_size != sizes_to_try[-1]:
+                            continue
+                
+                # 如果所有尺寸都失败了
+                if not success:
+                    self.app.root.after(0, lambda: messagebox.showerror("错误", "所有尺寸的水印嵌入都失败了\n请检查水印图片格式或尝试其他水印图片"))
+                    return
 
                 wm_len = len(bwm1.wm_bit) # 获取嵌入水印的长度
                 output_ext = ".jpg" if self.app.output_format.get() == "JPG" else ext # 确定输出文件扩展名
@@ -747,6 +829,27 @@ class WatermarkEmbedder:
                 # 读取图片
                 image = Image.open(filepath)
                 width, height = image.size
+                
+                # ========== 分辨率提升建议 ==========
+                # 检查是否需要提升分辨率以增加水印容量
+                should_upscale, scale_factor, new_size = self.check_resolution_upgrade_suggestion(width, height)
+                if should_upscale:
+                    # 根据缩放倍数确定操作类型
+                    operation = "提升" if scale_factor > 1 else "缩小"
+                    
+                    upgrade_msg = (
+                        f"检测到当前图片分辨率为 {width}x{height}\n"
+                        f"建议将分辨率{operation} {scale_factor:.2f}x 至 {new_size[0]}x{new_size[1]}\n"
+                        f"这样可以嵌入更多的水印副本，提高抗攻击能力。\n\n"
+                        f"是否现在进行分辨率{operation}？"
+                    )
+                    
+                    if messagebox.askyesno("分辨率提升建议", upgrade_msg):
+                        self.app.root.after(0, lambda: self.app.show_processing_window("正在提升图片分辨率，请稍候..."))
+                        image = image.resize(new_size, Image.LANCZOS)
+                        width, height = new_size
+                        print(f"分辨率已提升至: {width}x{height} (提升倍数: {scale_factor}x)")
+                # ========== 分辨率提升建议结束 ==========
                 
                 # 检查并转换JPG色彩空间(仅当输出格式为JPG时)
                 if self.app.output_format.get() == "JPG":
