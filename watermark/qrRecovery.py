@@ -58,13 +58,18 @@ def radius_to_kernel(radius_px):
         k += 1
     return k
 
-def enhanced_qr_recovery(extracted_img, size, qreader=None):
+def enhanced_qr_recovery(extracted_img, size, qreader=None, progress_callback=None):
     """
     针对严重损坏的二维码进行恢复
     使用边缘引导 + 高斯模糊的组合策略
     返回 (recovered_image, decoded_text, method_name) 或 (None, None, None)
     """
     method_name = "边缘引导恢复"
+    
+    # 调用进度回调
+    if progress_callback:
+        progress_callback(method_name)
+    
     try:
         # 转换为OpenCV格式
         img_cv = cv2.cvtColor(np.array(extracted_img), cv2.COLOR_RGB2GRAY)
@@ -159,9 +164,14 @@ class ComprehensiveQRRecovery:
         closing = cv2.morphologyEx(opening, cv2.MORPH_CLOSE, kernel)
         return closing
     
-    def process_with_method(self, image, enhance_method, denoise_method, binarize_method):
+    def process_with_method(self, image, enhance_method, denoise_method, binarize_method, progress_callback=None):
         """使用指定方法处理图像，返回(processed_image, decoded_text, method_name)"""
         method_name = f"{enhance_method}+{denoise_method}+{binarize_method}"
+        
+        # 调用进度回调
+        if progress_callback:
+            progress_callback(method_name)
+        
         try:
             # 转换为灰度图
             if isinstance(image, Image.Image):
@@ -186,6 +196,9 @@ class ComprehensiveQRRecovery:
                 current_method = method_name
                 if angle != 0:
                     current_method = f"{method_name}+旋转{angle}度"
+                    # 如果有旋转，也回调进度
+                    if progress_callback:
+                        progress_callback(current_method)
                     
                 if angle == 0:
                     test_image = processed
@@ -207,9 +220,10 @@ class ComprehensiveQRRecovery:
             print(f"处理方法失败: {e}")
             return None, None, method_name
     
-    def comprehensive_recovery(self, image, size=None):
+    def comprehensive_recovery(self, image, size=None, progress_callback=None):
         """
         综合恢复方法：结合原有方法和多种新方法
+        progress_callback: 进度回调函数，参数为当前使用的方法名
         返回 (recovered_image, decoded_text, method_name) 或 (None, None, None)
         """
         print("开始综合二维码恢复...")
@@ -222,7 +236,7 @@ class ComprehensiveQRRecovery:
             else:
                 pil_image = image
                 
-            enhanced_img, result, method_name = enhanced_qr_recovery(pil_image, size, self.qr_decoder.qreader)
+            enhanced_img, result, method_name = enhanced_qr_recovery(pil_image, size, self.qr_decoder.qreader, progress_callback)
             if result:
                 print(f"✓ 边缘引导方法成功! 内容: {result}")
                 return enhanced_img, result, method_name
@@ -249,7 +263,7 @@ class ComprehensiveQRRecovery:
         for i, (enhance, denoise, binarize) in enumerate(methods, 2):
             method_desc = f"方法{i}: {enhance}+{denoise}+{binarize}"
             print(f"尝试{method_desc}")
-            processed_img, result, method_name = self.process_with_method(image, enhance, denoise, binarize)
+            processed_img, result, method_name = self.process_with_method(image, enhance, denoise, binarize, progress_callback)
             if result:
                 print(f"✓ {method_desc}成功! 内容: {result}")
                 return processed_img, result, method_name
@@ -258,6 +272,9 @@ class ComprehensiveQRRecovery:
         
         # 方法9：直接尝试原始图像
         print("尝试方法9: 直接解码原始图像")
+        if progress_callback:
+            progress_callback("原始图像直接解码")
+        
         result = self.qr_decoder.decode_qr(image)
         if result:
             print(f"✓ 原始图像直接解码成功! 内容: {result}")
@@ -272,7 +289,7 @@ class ComprehensiveQRRecovery:
         return None, None, None
 
 # 便捷函数
-def recover_qr_code(image, size=None, qreader=None):
+def recover_qr_code(image, size=None, qreader=None, progress_callback=None):
     """
     便捷的二维码恢复函数
     
@@ -280,31 +297,31 @@ def recover_qr_code(image, size=None, qreader=None):
         image: PIL Image 或 numpy array
         size: 可选的尺寸参数
         qreader: 可选的QReader实例，如果不提供会创建新的
+        progress_callback: 进度回调函数，参数为当前使用的方法名
     
     Returns:
         tuple: (recovered_image, decoded_text, method_name) 或 (None, None, None)
     """
     recovery = ComprehensiveQRRecovery(qreader)
-    return recovery.comprehensive_recovery(image, size)
+    return recovery.comprehensive_recovery(image, size, progress_callback)
 
 # 使用示例
 if __name__ == "__main__":
     # 示例用法
+    def progress_callback(method_name):
+        print(f"当前使用方法: {method_name}")
+    
     try:
         # 从文件加载图像
         image_path = "test.png"  # 你的二维码图像路径
         image = Image.open(image_path)
         
         # 恢复二维码
-        recovered_img, result, method_used = recover_qr_code(image)
+        recovered_img, result, method_used = recover_qr_code(image, progress_callback=progress_callback)
         
         if result:
             print(f"最终解码结果: {result}")
             print(f"使用的方法: {method_used}")
-            # [DEBUG] 保存图像
-            # if recovered_img:
-            #     recovered_img.save("recovered_output.png")
-            #     print("恢复后的图像已保存为 recovered_output.png")
         else:
             print("无法恢复二维码内容")
             
