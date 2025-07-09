@@ -136,10 +136,37 @@ def close_splash():
 ## 启动前检查VC Redist
 def check_vc_redist():
     from tkinter import messagebox
-    """检查Visual C++ Redistributable x64是否已安装"""
+    """检查Visual C++ Redistributable x64是否已安装并且版本符合要求"""
     try:
         # 检查注册表中是否存在VC++ Redist
         import winreg
+        
+        # 目标版本
+        target_version = "v14.44.35208.00"
+        
+        # 版本比较函数
+        def compare_versions(version1, version2):
+            """比较两个版本号，返回 -1(小于), 0(等于), 1(大于)"""
+            # 移除版本号前的'v'字符
+            v1 = version1.lstrip('v')
+            v2 = version2.lstrip('v')
+            
+            # 按'.'分割版本号
+            v1_parts = [int(x) for x in v1.split('.')]
+            v2_parts = [int(x) for x in v2.split('.')]
+            
+            # 补齐版本号长度
+            max_len = max(len(v1_parts), len(v2_parts))
+            v1_parts += [0] * (max_len - len(v1_parts))
+            v2_parts += [0] * (max_len - len(v2_parts))
+            
+            # 逐位比较
+            for i in range(max_len):
+                if v1_parts[i] < v2_parts[i]:
+                    return -1
+                elif v1_parts[i] > v2_parts[i]:
+                    return 1
+            return 0
         
         # 常见的VC++ Redist注册表路径
         redist_paths = [
@@ -151,19 +178,39 @@ def check_vc_redist():
         
         for path in redist_paths:
             try:
-                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path):
-                    print("Found VC Redist.")
-                    return True
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as key:
+                    # 特别检查第一个路径的版本
+                    if path == r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64":
+                        try:
+                            version_value, _ = winreg.QueryValueEx(key, "Version")
+                            print(f"Found VC Redist version: {version_value}")
+                            
+                            # 比较版本
+                            if compare_versions(version_value, target_version) < 0:
+                                print(f"VC Redist version {version_value} is older than required {target_version}")
+                                return False
+                            else:
+                                print(f"VC Redist version {version_value} meets requirement")
+                                return True
+                        except FileNotFoundError:
+                            # 如果找不到Version值，继续检查其他路径
+                            print("Version value not found in registry")
+                            continue
+                    else:
+                        # 对于其他路径，只要存在就认为满足条件
+                        print(f"Found VC Redist at: {path}")
+                        return True
+                        
             except FileNotFoundError:
                 continue
-                
+        
         return False
     except ImportError:
         print("ImportError")
         # 如果不是Windows系统，跳过检查
         return True
     except Exception as e:
-        messagebox.showerror("找不到VC++ Redist，请安装后重新打开本程序")
+        messagebox.showerror("错误", "找不到VC++ Redist，请安装后重新打开本程序")
         print(f"检查VC++ Redist时出错: {e}")
         return False
 
