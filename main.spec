@@ -544,7 +544,7 @@ if INCLUDE_PROTABLE or INCLUDE_MSI:
         bootloader_ignore_signals=False,
         strip=False,
         upx=True,
-        console=False,
+        console=ENABLE_CONSOLE,
         disable_windowed_traceback=False,
         argv_emulation=False,
         target_arch=None,
