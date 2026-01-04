@@ -101,6 +101,12 @@
 pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv noise py7zr
 ```
 
+或使用以下命令（建议）
+
+```bash
+pip install -r requirements.txt
+```
+
 ### 安装 NSIS（用于生成安装版）
 
 1. 访问 NSIS 官网：[https://nsis.sourceforge.io/Download](https://nsis.sourceforge.io/Download)
@@ -192,7 +198,6 @@ python main.py
 - **2.x-dev**: 此分支用于对现有稳定版本 **2.x** 添加**增强功能**。
 
 - **2.x-fixes**: 此分支用于**小范围错误修复**和**发行安装包的可用性**。
-
 
 ---
 
