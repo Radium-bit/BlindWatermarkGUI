@@ -503,7 +503,8 @@ a = Analysis(
         # 包含修复文件
         (os.path.join(hooks_dir, 'torch_fixes.py'), '.'),
         (os.path.join(hooks_dir, 'torch_numpy_fix.py'), '.'),
-        (os.path.join(env_path, 'scipy/_lib/array_api_compat/numpy'), 'scipy/_lib/array_api_compat/numpy'),
+        # Numpy now Auto Include
+        # (os.path.join(env_path, 'scipy/_lib/array_api_compat/numpy'), 'scipy/_lib/array_api_compat/numpy'),
         ('hidden_imports.json', '.'),
         *collect_data_files('ultralytics'),
         ## 拆分后的模块
