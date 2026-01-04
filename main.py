@@ -14,6 +14,22 @@ splash_window = None
 splash_status_label = None
 main_root = None  # 主根窗口
 
+def check_vc_runtime_really_works():
+    # 检测 VC++ Runtime 是否可用
+    import ctypes
+    dlls = [
+        "vcruntime140.dll",
+        "vcruntime140_1.dll",
+        "msvcp140.dll",
+    ]
+    for dll in dlls:
+        try:
+            ctypes.CDLL(dll)
+        except OSError as e:
+            print(f"VC++ DLL load failed: {dll}, {e}")
+            return False
+    return True
+
 def create_main_root():
     """创建主根窗口（不可见）"""
     global main_root
@@ -64,7 +80,7 @@ def create_splash_screen():
     tk.Label(splash_window, text="请勿重复点击程序", 
             font=("Arial", 9), fg="#e67e22", bg="#2c3e50").pack(pady=(1, 5))
     
-    tk.Label(splash_window, text="2025 © Radium-bit", 
+    tk.Label(splash_window, text="2026 © Radium-bit", 
             font=("Arial", 8), fg="#ffffff", bg="#2c3e50").pack(side="bottom", pady=5)
     
     # 动画控制变量
@@ -239,7 +255,7 @@ def install_vc_redist():
         subprocess.Popen([redist_path])
         
         # 提示用户手动完成安装
-        messagebox.showinfo("安装提示", "VC++ Redist 安装程序已启动，请按照屏幕上的指示完成安装后再启动本程序。\n本程序即将退出。")
+        messagebox.showinfo("安装提示", "VC++ Redist 安装程序已启动，请按照屏幕上的指示完成安装后\n重新启动计算机，再启动本程序。\n本程序即将退出。")
         
         # 程序退出
         sys.exit() 
@@ -1150,7 +1166,7 @@ if __name__ == "__main__":
         ## 不存在的话帮用户打开进行安装，安装包在打包环境的根目录中，叫VC_redist.x64.exe
         ## 如果无法打开这个应用程序，也检测不到vc64，立即终止抛出异常
         print("Checking VC++ Redist...")
-        if not check_vc_redist():
+        if not check_vc_redist() or not check_vc_runtime_really_works():
             print("Installing VC++ Redist...")
             install_vc_redist()
 
