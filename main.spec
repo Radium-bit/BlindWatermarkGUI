@@ -519,12 +519,27 @@ a = Analysis(
     hookspath=[hooks_dir],
     hooksconfig={},
     runtime_hooks=[os.path.join(hooks_dir, 'torch_numpy_fix.py')],
-    excludes=[],
+    excludes=[
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "msvcp140.dll",
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False
 )
+
+excluded_dlls = {
+    'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll',
+    'vcruntime140d.dll', 'vcruntime140_1d.dll', 'msvcp140d.dll',
+    'concrt140.dll', 'concrt140d.dll'
+}
+
+# 手动过滤 a.binaries 以彻底排除这些 DLL
+print(f"Before filter: {len(a.binaries)} binaries")
+a.binaries = [x for x in a.binaries if os.path.basename(x[0]).lower() not in excluded_dlls]
+print(f"After filter: {len(a.binaries)} binaries")
 
 # pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher, compression=lzma, compression_level=COMPRESS_LEVEL)
