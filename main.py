@@ -14,19 +14,40 @@ splash_window = None
 splash_status_label = None
 main_root = None  # 主根窗口
 
-def check_vc_runtime_really_works():
-    # 检测 VC++ Runtime 是否可用
+# 持有系统 VC++ DLL 句柄，防止被 GC 释放
+_vc_runtime_handles = []
+
+def preload_system_vc_runtime():
+    """
+    在任何三方库导入前，从 System32 用绝对路径显式加载系统版 VC++ 运行库。
+
+    Windows 进程内同名 DLL 只加载一次——已注册到缓存的句柄会被后续所有
+    加载请求复用。因此只要在最早时机从 System32 加载，就能阻止 PyInstaller
+    临时目录内的残缺版本被抢先占位。
+
+    Returns:
+        True  - 所有必需 DLL 均已从 System32 成功加载
+        False - 至少一个 DLL 加载失败（系统未安装 VC++ Redist）
+    """
     import ctypes
-    dlls = [
+    import os
+
+    system32 = os.path.join(
+        os.environ.get("SystemRoot", r"C:\Windows"), "System32"
+    )
+    required_dlls = [
         "vcruntime140.dll",
         "vcruntime140_1.dll",
         "msvcp140.dll",
     ]
-    for dll in dlls:
+    for dll_name in required_dlls:
+        dll_path = os.path.join(system32, dll_name)
         try:
-            ctypes.CDLL(dll)
+            handle = ctypes.WinDLL(dll_path)
+            _vc_runtime_handles.append(handle)  # 持有引用防止被 GC
+            print(f"[VC++] Loaded from System32: {dll_name}")
         except OSError as e:
-            print(f"VC++ DLL load failed: {dll}, {e}")
+            print(f"[VC++] Failed to load {dll_name} from System32: {e}")
             return False
     return True
 
@@ -1142,8 +1163,18 @@ if __name__ == "__main__":
     # 第一步：只导入最基本的模块
     import os
     import sys
+
+    # ★ 最优先：从 System32 抢先注册系统版 VC++ DLL
+    # 必须在 tkinter / torch 等任何三方库导入之前执行，
+    # 利用 Windows 进程 DLL 缓存机制确保后续所有模块复用系统版本
+    _vc_preload_ok = False
+    if sys.platform.startswith('win'):
+        _vc_preload_ok = preload_system_vc_runtime()
+        if not _vc_preload_ok:
+            print("[VC++] System VC++ runtime not found, will prompt install later")
+
     import tkinter as tk
-    
+
     # 第二步：创建主根窗口
     try:
         main_root = create_main_root()
@@ -1162,11 +1193,10 @@ if __name__ == "__main__":
         pass
     
     try:
-        ## 在加载UI这些模块之前，先检查是否存在Visual C++ Redist x64 
+        ## 在加载UI这些模块之前，先检查是否存在Visual C++ Redist x64
         ## 不存在的话帮用户打开进行安装，安装包在打包环境的根目录中，叫VC_redist.x64.exe
-        ## 如果无法打开这个应用程序，也检测不到vc64，立即终止抛出异常
         print("Checking VC++ Redist...")
-        if not check_vc_redist() or not check_vc_runtime_really_works():
+        if not _vc_preload_ok or not check_vc_redist():
             print("Installing VC++ Redist...")
             install_vc_redist()
 
