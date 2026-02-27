@@ -391,6 +391,82 @@ def close_splash():
         except Exception as e:
             print(f"关闭启动画面时出错: {e}")
             splash_window = None
+def show_crash_dialog(title, error_text):
+    """
+    在程序异常退出前显示包含完整错误信息的弹窗。
+    用户可在文本框中选择全部并复制，方便提交错误报告。
+    """
+    import tkinter as tk
+    try:
+        root = tk.Tk()
+        root.title(title)
+        root.geometry("680x420")
+        root.configure(bg="#1e1e1e")
+        root.resizable(True, True)
+        # 置顶显示
+        root.attributes('-topmost', True)
+        # 居中
+        root.update_idletasks()
+        sw = root.winfo_screenwidth()
+        sh = root.winfo_screenheight()
+        x = (sw - 680) // 2
+        y = (sh - 420) // 2
+        root.geometry(f"680x420+{x}+{y}")
+
+        # 顶部标题
+        tk.Label(
+            root, text="⚠ 程序遇到错误",
+            font=("Arial", 12, "bold"), fg="#e74c3c", bg="#1e1e1e"
+        ).pack(pady=(14, 2))
+        tk.Label(
+            root, text="请将以下错误信息发送给开发者以协助修复",
+            font=("Arial", 9), fg="#aaaaaa", bg="#1e1e1e"
+        ).pack(pady=(0, 8))
+
+        # 错误文本框（带滚动条）
+        frame = tk.Frame(root, bg="#1e1e1e")
+        frame.pack(fill="both", expand=True, padx=16, pady=(0, 8))
+        scrollbar = tk.Scrollbar(frame)
+        scrollbar.pack(side="right", fill="y")
+        text_box = tk.Text(
+            frame, wrap="none", yscrollcommand=scrollbar.set,
+            font=("Consolas", 9), bg="#2d2d2d", fg="#f8f8f2",
+            relief="flat", borderwidth=4, state="normal"
+        )
+        xscrollbar = tk.Scrollbar(frame, orient="horizontal", command=text_box.xview)
+        xscrollbar.pack(side="bottom", fill="x")
+        text_box.configure(xscrollcommand=xscrollbar.set)
+        text_box.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=text_box.yview)
+        text_box.insert("1.0", error_text)
+        text_box.config(state="disabled")
+
+        # 按钮区
+        btn_frame = tk.Frame(root, bg="#1e1e1e")
+        btn_frame.pack(pady=(0, 14))
+
+        def copy_all():
+            root.clipboard_clear()
+            root.clipboard_append(error_text)
+            copy_btn.config(text="已复制 ✓")
+            root.after(2000, lambda: copy_btn.config(text="复制错误信息"))
+
+        copy_btn = tk.Button(
+            btn_frame, text="复制错误信息", command=copy_all,
+            font=("Arial", 9), bg="#3498db", fg="white",
+            relief="flat", padx=12, pady=4, cursor="hand2"
+        )
+        copy_btn.pack(side="left", padx=8)
+
+        tk.Button(
+            btn_frame, text="关闭程序", command=root.destroy,
+            font=("Arial", 9), bg="#e74c3c", fg="white",
+            relief="flat", padx=12, pady=4, cursor="hand2"
+        ).pack(side="left", padx=8)
+
+        root.mainloop()
+    except Exception as dialog_err:
+        print(f"无法显示崩溃报告弹窗: {dialog_err}")
 
 # 延迟导入的模块将在这里存储
 imported_modules = {}
@@ -443,8 +519,11 @@ def import_modules_progressively():
         return True
         
     except Exception as e:
+        import traceback
+        tb_str = traceback.format_exc()
         print(f"模块导入失败: {e}")
-        return False
+        print(tb_str)
+        return tb_str  # 返回 traceback 字符串以供崩溃弹窗展示
 
 def create_app_class():
     """创建App类，在导入完成后调用"""
@@ -1164,14 +1243,15 @@ if __name__ == "__main__":
     import os
     import sys
 
-    # ★ 最优先：从 System32 抢先注册系统版 VC++ DLL
+    # ★ 最优先：从 System32 抢先注册系统版 VC++ DLL（尽力而为）
     # 必须在 tkinter / torch 等任何三方库导入之前执行，
-    # 利用 Windows 进程 DLL 缓存机制确保后续所有模块复用系统版本
-    _vc_preload_ok = False
+    # 利用 Windows 进程 DLL 缓存机制确保后续所有模块复用系统版本。
+    # 注意：此步骤仅用于 DLL 优先级优化，失败不影响程序启动。
     if sys.platform.startswith('win'):
-        _vc_preload_ok = preload_system_vc_runtime()
-        if not _vc_preload_ok:
-            print("[VC++] System VC++ runtime not found, will prompt install later")
+        try:
+            preload_system_vc_runtime()
+        except Exception as e:
+            print(f"[VC++] Preload attempt failed (non-fatal): {e}")
 
     import tkinter as tk
 
@@ -1196,16 +1276,24 @@ if __name__ == "__main__":
         ## 在加载UI这些模块之前，先检查是否存在Visual C++ Redist x64
         ## 不存在的话帮用户打开进行安装，安装包在打包环境的根目录中，叫VC_redist.x64.exe
         print("Checking VC++ Redist...")
-        if not _vc_preload_ok or not check_vc_redist():
+        if not check_vc_redist():
             print("Installing VC++ Redist...")
             install_vc_redist()
 
         # 第四步：逐步导入其他模块
         update_splash_status("准备加载程序模块...")
         
-        if not import_modules_progressively():
+        result = import_modules_progressively()
+        if result is not True:
             close_splash()
-            print("模块导入失败，程序退出")
+            tb_str = result if isinstance(result, str) else "(未知错误，请查看控制台输出)"
+            error_msg = (
+                f"程序启动失败：模块导入出错\n\n"
+                f"版本: BlindWatermarkGUI\n"
+                f"请将此信息提交至项目 Issues 页面。\n\n"
+                f"— 错误详情 —\n{tb_str}"
+            )
+            show_crash_dialog("模块加载失败", error_msg)
             sys.exit(1)
         
         # 第五步：应用torch修复
@@ -1257,11 +1345,15 @@ if __name__ == "__main__":
                 
     except Exception as e:
         close_splash()
-        print(f"程序启动失败: {e}")
         import traceback
-        traceback.print_exc()
-        try:
-            tk.messagebox.showerror("启动失败", f"程序启动时出错:\n{str(e)}")
-        except:
-            pass
+        tb_str = traceback.format_exc()
+        print(f"程序启动失败: {e}")
+        print(tb_str)
+        error_msg = (
+            f"程序启动失败\n\n"
+            f"版本: BlindWatermarkGUI\n"
+            f"请将此信息提交至项目 Issues 页面。\n\n"
+            f"— 错误详情 —\n{tb_str}"
+        )
+        show_crash_dialog("程序崩溃", error_msg)
         sys.exit(1)
