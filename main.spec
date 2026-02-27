@@ -2,7 +2,7 @@
 ## Copyright (c) 2025 Radium-bit
 ## SPDX-License-Identifier: Apache-2.0
 ## See LICENSE file for full terms
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 import os
 import json
 import lzma
@@ -22,6 +22,15 @@ OPTIMIZE = os.getenv('OPTIMIZE')
 PROGRAM_GUID = os.getenv('PROGRAM_GUID')
 INCLUDE_ONEFILE = os.getenv('INCLUDE_ONEFILE', 'false').lower() == 'true'
 ENABLE_CONSOLE = os.getenv('ENABLE_CONSOLE_DEBUG', 'false').lower() == 'true'
+
+# 7z 压缩参数
+PORTABLE_COMPRESS_PRESET = int(os.getenv('PORTABLE_COMPRESS_PRESET', '6'))
+PORTABLE_DICT_SIZE_MB = int(os.getenv('PORTABLE_DICT_SIZE_MB', '32'))
+
+# NSIS 压缩参数
+NSIS_COMPRESSOR = os.getenv('NSIS_COMPRESSOR', 'lzma').lower()
+NSIS_SOLID = os.getenv('NSIS_SOLID', 'true').lower() == 'true'
+NSIS_DICT_SIZE_MB = int(os.getenv('NSIS_DICT_SIZE_MB', '32'))
 
 # 控制选项：是否在版本号后添加 Git hash
 INCLUDE_GIT_HASH = os.getenv('INCLUDE_GIT_HASH', 'false').lower() == 'true'
@@ -81,14 +90,16 @@ def update_ver_env(version):
 def create_7z_archive(source_dir, output_file):
     """创建7z压缩包"""
     try:
+        dict_bytes = PORTABLE_DICT_SIZE_MB * 1024 * 1024
         print(f"📦 正在创建Portable压缩包...")
         print(f"   源目录：{source_dir}")
         print(f"   输出：{output_file}")
+        print(f"   压缩参数：LZMA2 preset={PORTABLE_COMPRESS_PRESET}, dict={PORTABLE_DICT_SIZE_MB}MB")
         filters = [
             {
-                "id": py7zr.FILTER_LZMA2,  # -m0=LZMA2
-                "preset": 9,               # -mx9 (压缩级别)
-                "dict_size": 64 * 1024 * 1024,  # 64MB字典
+                "id": py7zr.FILTER_LZMA2,
+                "preset": PORTABLE_COMPRESS_PRESET,
+                "dict_size": dict_bytes,
             }]
         with py7zr.SevenZipFile(output_file, 'w', filters=filters) as archive:
             for root, dirs, files in os.walk(source_dir):
@@ -248,8 +259,8 @@ InstallDir "$PROGRAMFILES\\${{PRODUCT_NAME}}"
 InstallDirRegKey HKLM "${{PRODUCT_DIR_REGKEY}}" ""
 ShowInstDetails show
 ShowUnInstDetails show
-SetCompressor /SOLID lzma
-SetCompressorDictSize 64
+SetCompressor {'/SOLID ' if NSIS_SOLID else ''}{NSIS_COMPRESSOR}
+{f'SetCompressorDictSize {NSIS_DICT_SIZE_MB}' if NSIS_COMPRESSOR == 'lzma' else ''}
 
 ; Variables
 Var ExistingPath
@@ -494,7 +505,7 @@ REQUIRED_IMPORTS = [
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
+    binaries=collect_dynamic_libs('numpy') + collect_dynamic_libs('pywt'),
     datas=[
         # qr模型
         (qrdet_model_path, 'qrdet/.model'),
