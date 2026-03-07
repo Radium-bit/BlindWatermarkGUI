@@ -511,6 +511,15 @@ REQUIRED_IMPORTS = [
     'watermark',
     'watermark.embed',
     'watermark.extract',
+    # Qt 迁移阶段依赖
+    'PySide6',
+    'PySide6.QtCore',
+    'PySide6.QtGui',
+    'PySide6.QtWidgets',
+    'app',
+    'app.ui_qt',
+    'app.ui_qt.main_window',
+    'app.ui_qt.app_entry',
 ]
 
 import numpy, pywt
@@ -543,6 +552,7 @@ a = Analysis(
         *ultralytics_datas,
         # 业务代码模块
         ('watermark', 'watermark'),
+        ('app/ui_qt/resources', 'app/ui_qt/resources'),
         # Microsoft Visual C++ Redistributable (x64)
         ('thirdParty/VC_redist.x64.exe','.')
     ],

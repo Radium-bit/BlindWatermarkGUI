@@ -40,3 +40,9 @@ implementation_plan.md
 
 # Private Docs
 docs-priv/*
+
+# Qt migration smoke test artifacts
+/debug/qt-smoke-*
+/debug/qt-bench-*
+/debug/try-jpeg-out.png
+/app/**/__pycache__/
