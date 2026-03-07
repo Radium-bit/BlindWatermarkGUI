@@ -1,7 +1,16 @@
-/build
-/dist
+/build/
+/dist/
 __pycache__/
 *.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+
+# Common Python tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 DEV.ENV
 BUILD.ENV
 APP.ENV
@@ -12,12 +21,18 @@ main.dist/
 main.onefile-build/
 build.nsi
 
-# NSIS Build cahces
-.wix
+# NSIS Build caches
+/.wix/
 
-# Test files
+# Logs
+*.log
+current.log
+
+# Local/manual test artifacts
 test.py
-test*.*
+test2.py
+test_getAllUnicode.py
+test.jpg
 
 # Prompt Files
 AGENTS.md
