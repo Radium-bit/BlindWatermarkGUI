@@ -89,19 +89,27 @@
 
 ## 📦 安装依赖/编译准备
 
-**Python版本**: ≥3.7, ≤3.10
+**Python版本**: 3.10.x（当前构建约束为 `>=3.10,<3.11`）
 
 0. 直接运行初始化脚本 `Init.bat` 或 `Init.sh`
 
 1. 检查并编辑 `DEV.ENV` 和 `BUILD.ENV` 以符合您的开发和打包环境
 
-### 依赖安装
+### 依赖安装（推荐 uv）
+
+推荐先安装 [uv](https://github.com/astral-sh/uv)，然后在项目根目录执行：
 
 ```bash
-pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv noise py7zr
+uv sync
 ```
 
-或使用以下命令（建议）
+如需包含打包依赖（PyInstaller 等）：
+
+```bash
+uv sync --group build
+```
+
+如果暂不使用 uv，仍可使用 pip 兼容安装：
 
 ```bash
 pip install -r requirements.txt
@@ -123,15 +131,55 @@ pip install -r requirements.txt
 
 ## 🛠️ 打包 Windows 可执行文件（.exe）
 
-使用 [PyInstaller](https://www.pyinstaller.org/) 创建单文件 `.exe`
+使用 [PyInstaller](https://www.pyinstaller.org/) 构建可执行文件（支持 onefile / installer）
 
 ### 1. 检查 `DEV.ENV` 和 `BUILD.ENV` 确保打包参数正确
 
-### 2. 确保安装依赖后在程序根目录执行以下命令：
+### 2. 推荐构建命令（uv 环境）
+
+日常迭代（更快，不清空缓存）：
 
 ```bash
-pyinstaller main.spec --clean --noconfirm
+uv run pyinstaller main.spec --noconfirm
 ```
+
+完整重构建（最慢，仅在依赖/Hook/Spec 变化后使用）：
+
+```bash
+uv run pyinstaller main.spec --clean --noconfirm
+```
+
+### 3. 关键打包开关（`BUILD.ENV`）
+
+- `INCLUDE_INSTALLER=true`：生成安装版（`_Installer.exe`）
+- `INCLUDE_ONEFILE=true/false`：是否额外生成 onefile
+- `INCLUDE_PROTABLE=true/false`：是否额外生成 portable 7z
+- `INCLUDE_GIT_HASH=true`：产物文件名附带 git 短 hash
+
+建议开发阶段使用：
+
+- `INCLUDE_INSTALLER=true`
+- `INCLUDE_ONEFILE=false`
+- `INCLUDE_PROTABLE=false`
+
+这样可保留安装版验证，同时减少重复构建时间。
+
+### 4. 产物验证（构建后）
+
+```bash
+dir dist
+```
+
+常见产物示例：
+
+- `BlindWatermarkGUI_v0.2.11_build.<hash>.exe`
+- `BlindWatermarkGUI_v0.2.11_build.<hash>_Installer.exe`
+
+### 5. 构建耗时说明
+
+- 首次在新环境构建会明显更慢（依赖分析和缓存初始化）。
+- 使用 `--clean` 会强制全量分析，耗时显著增加。
+- 当前依赖包含 `torch/scipy/ultralytics`，Analysis 阶段本身较重，属于正常现象。
 
 ---
 

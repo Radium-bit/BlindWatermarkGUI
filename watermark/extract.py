@@ -18,6 +18,36 @@ class WatermarkExtractor:
     def __init__(self, app):
         self.app = app
 
+    def _run_on_ui_thread(self, func):
+        """在主线程同步执行 UI 调用，并返回结果。"""
+        if threading.current_thread() is threading.main_thread():
+            return func()
+
+        done = threading.Event()
+        result = {"value": None, "error": None}
+
+        def wrapper():
+            try:
+                result["value"] = func()
+            except Exception as e:
+                result["error"] = e
+            finally:
+                done.set()
+
+        self.app.root.after(0, wrapper)
+        done.wait()
+
+        if result["error"] is not None:
+            raise result["error"]
+        return result["value"]
+
+    def _ask_yes_no(self, title, message):
+        return self._run_on_ui_thread(lambda: messagebox.askyesno(title, message))
+
+    def _ask_string(self, title, prompt, **kwargs):
+        from tkinter import simpledialog
+        return self._run_on_ui_thread(lambda: simpledialog.askstring(title, prompt, **kwargs))
+
     def extract_watermark(self, filepath):
             def worker():
                 try:
@@ -38,9 +68,12 @@ class WatermarkExtractor:
                     if target_size is None:
                         m = re.search(r"size(\d+)x(\d+)", basename)
                         if not m: 
-                            result = messagebox.askyesno("注意","文件名中未找到 size(如 size800x600)\n可取消后手动输入或改名\n\n或者继续？（使用当前图像的长宽）")
+                            result = self._ask_yes_no("注意","文件名中未找到 size(如 size800x600)\n可取消后手动输入或改名\n\n或者继续？（使用当前图像的长宽）")
                             if not result:
-                                if os.path.exists(tmp_in): os.remove(tmp_out)
+                                if os.path.exists(tmp_in):
+                                    os.remove(tmp_in)
+                                if os.path.exists(tmp_out):
+                                    os.remove(tmp_out)
                                 raise ValueError("用户取消操作，请手动输入原图长宽")
                         target_size = (int(m.group(1)), int(m.group(2))) if m else None
                     self.app.root.after(10, lambda: self.app.show_processing_window("正在提取水印，请稍候..."))
@@ -118,7 +151,7 @@ class WatermarkExtractor:
                     # 如果第一轮常规解析全部失败，询问用户是否进行增强解析
                     if not text:
                         print("第一轮常规解析全部失败，询问用户是否进行增强解析")
-                        result = messagebox.askyesno("常规解析失败", 
+                        result = self._ask_yes_no("常规解析失败", 
                             "所有常规水印解析都失败了。\n\n增强解析可能耗时较久，是否继续？\n仅当你确认嵌入的不是[自定义图像]才使用该方法\n\n确定进行增强解析\n否则直接显示提取图像")
                         
                         if result:
@@ -235,9 +268,9 @@ class WatermarkExtractor:
                                     if img_backup:
                                         img_backup.close()
                             else:
-                                messagebox.showerror("错误", "水印提取失败")
+                                self.app.root.after(0, lambda: messagebox.showerror("错误", "水印提取失败"))
                         else:
-                            messagebox.showerror("错误", "水印提取失败")
+                            self.app.root.after(0, lambda: messagebox.showerror("错误", "水印提取失败"))
                         return
                     
                     # 成功提取水印，显示结果
@@ -275,7 +308,7 @@ class WatermarkExtractor:
                 if target_size is None:
                     m = re.search(r"size(\d+)x(\d+)", basename)
                     if not m: 
-                        result = messagebox.askyesno("注意","文件名中未找到 size(如 size800x600)\n可取消后手动输入或改名\n\n或者继续？（使用当前图像的长宽）")
+                        result = self._ask_yes_no("注意","文件名中未找到 size(如 size800x600)\n可取消后手动输入或改名\n\n或者继续？（使用当前图像的长宽）")
                         if not result:
                             if os.path.exists(tmp_in): os.remove(tmp_in)
                             if os.path.exists(tmp_out): os.remove(tmp_out)
@@ -358,9 +391,9 @@ class WatermarkExtractor:
                             if img_backup:
                                 img_backup.close()
                     else:
-                        messagebox.showerror("错误", "水印图像提取失败")
+                        self.app.root.after(0, lambda: messagebox.showerror("错误", "水印图像提取失败"))
                 else:
-                    messagebox.showerror("错误", "水印图像提取失败")
+                    self.app.root.after(0, lambda: messagebox.showerror("错误", "水印图像提取失败"))
                             
             except Exception as e:
                 self.app.root.after(0, lambda e=e: messagebox.showerror("错误", f"提取水印图像失败: {str(e)}"))
@@ -499,7 +532,7 @@ class WatermarkExtractor:
                     if target_size is None:
                         m = re.search(r"size(\d+)x(\d+)", basename)
                         if not m: 
-                            result = messagebox.askyesno("注意","文件名中未找到 size(如 size800x600)\n可取消后手动输入或改名\n\n或者继续？（使用当前图像的长宽）")
+                            result = self._ask_yes_no("注意","文件名中未找到 size(如 size800x600)\n可取消后手动输入或改名\n\n或者继续？（使用当前图像的长宽）")
                             if not result:
                                 raise ValueError("用户取消操作，请手动输入原图长宽")
                         target_size = (int(m.group(1)), int(m.group(2))) if m else None
@@ -617,17 +650,15 @@ class WatermarkExtractor:
                     if file_ext is None:
                         # Ask user for file extension
                         self.app.root.after(0, self.app.hide_processing_window)
-                        
-                        # Create a simple dialog to get file extension
-                        from tkinter import simpledialog
-                        file_ext = self.app.root.after(0, lambda: simpledialog.askstring(
-                            "文件类型", 
+
+                        file_ext = self._ask_string(
+                            "文件类型",
                             "无法自动检测文件类型。\n请输入文件扩展名（例如: txt, pdf, jpg, exe）：",
                             parent=self.app.root
-                        ))
-                        
+                        )
+
                         if not file_ext:
-                            file_ext = "bin"
+                            file_ext = ".bin"
                         elif not file_ext.startswith('.'):
                             file_ext = '.' + file_ext
                         

@@ -1,0 +1,35 @@
+[project]
+name = "blind-watermark-gui"
+version = "0.2.11"
+description = "BlindWatermarkGUI desktop app"
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "blind-watermark==0.4.4",
+    "numpy==1.25.2",
+    "opencv-contrib-python==4.11.0.86",
+    "Pillow==10.1.0",
+    "python-dotenv==1.1.0",
+    "noise==1.2.2",
+    "qrcode==8.2",
+    "pyzbar==0.1.9",
+    "qrdet==2.5",
+    "qreader==3.16",
+    "quadrilateral-fitter==1.12",
+    "reedsolo==1.7.0",
+    "PyWavelets==1.8.0",
+    "scipy==1.9.3",
+    "tkinterdnd2-universal==1.7.3",
+    "torch==2.7.1",
+    "torchvision==0.22.1",
+    "ultralytics==8.3.156",
+]
+
+[dependency-groups]
+build = [
+    "pyinstaller==6.2.0",
+    "pyinstaller-hooks-contrib==2023.10",
+    "py7zr==1.0.0",
+    "pywin32==310",
+    "pywin32-ctypes==0.2.2",
+]

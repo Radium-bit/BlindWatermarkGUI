@@ -37,3 +37,6 @@ test.jpg
 # Prompt Files
 AGENTS.md
 implementation_plan.md
+
+# Private Docs
+docs-priv/*

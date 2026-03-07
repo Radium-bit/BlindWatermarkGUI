@@ -40,6 +40,8 @@ INCLUDE_PROTABLE = os.getenv('INCLUDE_PROTABLE', 'false').lower() == 'true'
 
 # 控制选项：是否额外打包安装程序模式
 INCLUDE_MSI = os.getenv('INCLUDE_INSTALLER', 'false').lower() == 'true'
+# 体积优化预留开关：是否收集 ultralytics 全量数据（默认开启，保持当前行为）
+ENABLE_ULTRALYTICS_DATA = os.getenv('ENABLE_ULTRALYTICS_DATA', 'true').lower() == 'true'
 
 def get_git_hash():
     """获取当前 Git commit 的短 hash"""
@@ -476,9 +478,11 @@ hooks_dir = 'hooks'
 
 # 定义去重列表，可显式导入的部分
 REQUIRED_IMPORTS = [
+    # 应用主依赖
     'qreader',
     'qrcode',
     'ultralytics',
+    # torch 相关动态模块
     'torch._numpy',
     'torch._numpy._ufuncs',
     'torch._numpy._ndarray',
@@ -491,6 +495,7 @@ REQUIRED_IMPORTS = [
     'torchvision.io',
     'torch._dynamo',
     'torch.fx',
+    # scipy / pywt 兼容性补充
     'scipy._lib.array_api_compat.common._fft',
     'scipy._lib.array_api_compat.common',
     'scipy._lib.array_api_compat.numpy.fft',
@@ -510,6 +515,8 @@ REQUIRED_IMPORTS = [
 
 import numpy, pywt
 _extra_binaries = []
+ultralytics_datas = collect_data_files('ultralytics') if ENABLE_ULTRALYTICS_DATA else []
+print(f"📦 ultralytics datas enabled: {ENABLE_ULTRALYTICS_DATA}, items={len(ultralytics_datas)}")
 
 # 注意：不要在此处手动扫描和收集 numpy/pywt 的 DLL (.dll / .pyd)，
 # PyInstaller 6+ 已内置了对 numpy (包括 numpy.libs 里的 OpenBLAS) 
@@ -529,14 +536,14 @@ a = Analysis(
         # 包含修复文件
         (os.path.join(hooks_dir, 'torch_fixes.py'), '.'),
         (os.path.join(hooks_dir, 'torch_numpy_fix.py'), '.'),
-        # Numpy now Auto Include
+        # numpy 由 PyInstaller 官方 hook 自动处理
         # (os.path.join(env_path, 'scipy/_lib/array_api_compat/numpy'), 'scipy/_lib/array_api_compat/numpy'),
         ('hidden_imports.json', '.'),
-        *collect_data_files('ultralytics'),
-        ## 拆分后的模块
-        # watermark 模块
+        # 体积优化待评估：默认仍保留 ultralytics 全量数据
+        *ultralytics_datas,
+        # 业务代码模块
         ('watermark', 'watermark'),
-        ## Microsoft Visual C++ Redistributable (x64)
+        # Microsoft Visual C++ Redistributable (x64)
         ('thirdParty/VC_redist.x64.exe','.')
     ],
     hiddenimports = REQUIRED_IMPORTS + [

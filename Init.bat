@@ -26,13 +26,28 @@ echo.
 echo ========================================
 echo 步骤1: 安装Python依赖包
 echo ========================================
-echo 正在安装依赖包...
-pip install blind-watermark pillow tkinterdnd2-universal qrcode pyzbar qreader numpy python-dotenv noise py7zr
-
-if %errorlevel% neq 0 (
-    echo 错误: 依赖包安装失败
-    pause
-    exit /b 1
+echo 检测 uv...
+where uv >nul 2>nul
+if %errorlevel% equ 0 (
+    echo 已检测到 uv，优先使用 uv 同步依赖...
+    uv sync
+    if %errorlevel% neq 0 (
+        echo 警告: uv sync 失败，尝试回退到 pip 安装...
+        pip install -r requirements.txt
+        if %errorlevel% neq 0 (
+            echo 错误: 依赖包安装失败（uv 与 pip 都失败）
+            pause
+            exit /b 1
+        )
+    )
+) else (
+    echo 未检测到 uv，使用 pip 安装 requirements.txt...
+    pip install -r requirements.txt
+    if %errorlevel% neq 0 (
+        echo 错误: 依赖包安装失败
+        pause
+        exit /b 1
+    )
 )
 echo 依赖包安装完成！
 
@@ -90,6 +105,7 @@ echo 提醒事项:
 echo 1. 请检查并编辑DEV.ENV文件中的SITE_PACKAGE_PATH路径
 echo 2. 如需要，可以修改BUILD.ENV中的配置
 echo 3. 检查APP.ENV配置是否符合需求
+echo 4. 推荐使用 uv 管理环境（uv sync）
 echo.
 echo 打包运行前准备工作已完成！
 echo ========================================

@@ -141,35 +141,6 @@ def create_splash_screen():
     splash_window.update()
     return splash_window
 
-def update_splash_status(text):
-    """更新启动画面状态"""
-    global splash_window, splash_status_label
-    if splash_window and splash_status_label:
-        try:
-            if splash_window.winfo_exists():
-                splash_status_label.config(text=text)
-                splash_window.update()
-        except tk.TclError:
-            pass
-
-def close_splash():
-    """关闭启动画面"""
-    global splash_window
-    if splash_window:
-        try:
-            print("正在关闭启动画面...")
-            # 停止动画
-            if hasattr(splash_window, 'stop_animation'):
-                splash_window.stop_animation()
-                print("动画已停止")
-            # 销毁启动窗口
-            splash_window.destroy()
-            splash_window = None
-            print("启动画面已完全关闭")
-        except Exception as e:
-            print(f"关闭启动画面时出错: {e}")
-            splash_window = None
-
 ## 启动前检查VC Redist
 def check_vc_redist():
     from tkinter import messagebox
@@ -285,83 +256,6 @@ def install_vc_redist():
         error_message = f"启动VC++ Redist安装程序时发生错误: {e}"
         messagebox.showerror("启动错误：", error_message)
         raise
-
-def import_modules_progressively():
-    """逐步导入模块"""
-    global imported_modules, main_root
-    #开始加载模块
-    try:
-        # 第一阶段：基础模块
-        update_splash_status("加载基础模块...")
-        from dotenv import load_dotenv
-        imported_modules['load_dotenv'] = load_dotenv
-        update_splash_status("加载UI框架...")
-        from tkinterdnd2 import DND_FILES, TkinterDnD
-        imported_modules['DND_FILES'] = DND_FILES
-        imported_modules['TkinterDnD'] = TkinterDnD
-        
-        # 安全地重新创建支持拖拽的根窗口
-        update_splash_status("重新初始化主窗口...")
-        if main_root:
-            try:
-                main_root.destroy()
-            except:
-                pass  # 忽略销毁错误
-        
-        main_root = TkinterDnD.Tk()
-        main_root.withdraw()
-        
-        # 第二阶段：常用库
-        update_splash_status("加载图像处理模块...")
-        import tempfile
-        import re
-        import json
-        from pathlib import Path
-        from PIL import Image, ImageTk
-        import webbrowser
-        imported_modules.update({
-            'tempfile': tempfile,
-            're': re,
-            'json': json,
-            'Path': Path,
-            'Image': Image,
-            'ImageTk': ImageTk,
-            'webbrowser': webbrowser
-        })
-        
-        # 第三阶段：水印模块
-        update_splash_status("加载水印处理模块...")
-        from watermark.embed import WatermarkEmbedder
-        from watermark.extract import WatermarkExtractor
-        imported_modules['WatermarkEmbedder'] = WatermarkEmbedder
-        imported_modules['WatermarkExtractor'] = WatermarkExtractor
-        
-        return True
-        
-    except Exception as e:
-        print(f"模块导入失败: {e}")
-        return False
-    
-    # 启动进度动画
-    def animate_progress():
-        if (splash_window and splash_window.winfo_exists() and 
-            animation_running[0] and main_root and main_root.winfo_exists()):
-            try:
-                frames = ["◐", "◓", "◑", "◒"]
-                current = progress_label.cget("text")
-                next_frame = frames[(frames.index(current) + 1) % len(frames)]
-                progress_label.config(text=next_frame)
-                main_root.after(200, animate_progress)
-            except (tk.TclError, ValueError):
-                # 如果窗口已被销毁或其他错误，停止动画
-                animation_running[0] = False
-    
-    # 存储动画停止函数到窗口属性
-    splash_window.stop_animation = lambda: animation_running.__setitem__(0, False)
-    
-    animate_progress()
-    splash_window.update()
-    return splash_window
 
 def update_splash_status(text):
     """更新启动画面状态"""

@@ -18,6 +18,38 @@ from tkinter import messagebox
 class WatermarkEmbedder:
     def __init__(self, app):
         self.app = app
+
+    def _run_on_ui_thread(self, func):
+        """在主线程同步执行 UI 调用，并返回结果。"""
+        if threading.current_thread() is threading.main_thread():
+            return func()
+
+        done = threading.Event()
+        result = {"value": None, "error": None}
+
+        def wrapper():
+            try:
+                result["value"] = func()
+            except Exception as e:
+                result["error"] = e
+            finally:
+                done.set()
+
+        self.app.root.after(0, wrapper)
+        done.wait()
+
+        if result["error"] is not None:
+            raise result["error"]
+        return result["value"]
+
+    def _ask_yes_no(self, title, message):
+        return self._run_on_ui_thread(lambda: messagebox.askyesno(title, message))
+
+    def _show_error(self, title, message):
+        return self._run_on_ui_thread(lambda: messagebox.showerror(title, message))
+
+    def _show_info(self, title, message):
+        return self._run_on_ui_thread(lambda: messagebox.showinfo(title, message))
     
     def generate_qr_watermark(self, size=128):
         """生成二维码水印文件
@@ -26,7 +58,7 @@ class WatermarkEmbedder:
         try:
             wm_text = self.app.text_wm.get("1.0", "end").strip()
             if not wm_text:
-                messagebox.showerror("错误", "请输入水印文本")
+                self._show_error("错误", "请输入水印文本")
                 return None
                 
             # 创建临时文件
@@ -49,7 +81,7 @@ class WatermarkEmbedder:
             
             return tmp_file
         except Exception as e:
-            messagebox.showerror("错误", f"生成二维码失败: {str(e)}")
+            self._show_error("错误", f"生成二维码失败: {str(e)}")
             return None
 
     def check_resolution_upgrade_suggestion(self, width, height):
@@ -169,7 +201,7 @@ class WatermarkEmbedder:
                         f"是否现在进行分辨率{operation}？"
                     )
                     
-                    if messagebox.askyesno("分辨率提升建议", upgrade_msg):
+                    if self._ask_yes_no("分辨率提升建议", upgrade_msg):
                         self.app.root.after(0, lambda: self.app.show_processing_window("正在提升图片分辨率，请稍候..."))
                         image = image.resize(new_size, Image.LANCZOS)
                         width, height = new_size
@@ -330,8 +362,6 @@ class WatermarkEmbedder:
         # 启动工作线程
         threading.Thread(target=worker, daemon=True).start()
 
-        self.app.hide_processing_window()
-
 
     def embed_watermark_custom_binary(self, filepath, w_filepath):
         """
@@ -488,8 +518,6 @@ class WatermarkEmbedder:
         # Start worker thread
         threading.Thread(target=worker, daemon=True).start()
 
-        self.app.hide_processing_window()
-
     def confirm_watermark_embedding(self, binary_data, available_capacity, safety_margin=0.90):
         """
         在嵌入水印前检查容量并请求用户确认
@@ -540,7 +568,7 @@ class WatermarkEmbedder:
                 )
             
                 # 显示确认对话框
-                result = messagebox.askyesno("容量不足确认", message)
+                result = self._ask_yes_no("容量不足确认", message)
             
                 if not result:
                     return False, None
@@ -561,7 +589,7 @@ class WatermarkEmbedder:
             print(f"容量确认过程出错: {e}")
             # 显示错误信息
             error_message = f"容量检查失败: {str(e)}\n\n是否尝试强制嵌入？"
-            result = messagebox.askyesno("容量检查错误", error_message)
+            result = self._ask_yes_no("容量检查错误", error_message)
             
             if not result:
                 return False, None
@@ -575,7 +603,7 @@ class WatermarkEmbedder:
                 )
                 return True, bit_array
             except Exception as force_error:
-                messagebox.showerror("嵌入失败", f"强制嵌入也失败了: {str(force_error)}")
+                self._show_error("嵌入失败", f"强制嵌入也失败了: {str(force_error)}")
                 return False, None
 
     def embed_watermark_custom_binary_with_rc1(self, filepath, w_filepath, use_rc1=True):
@@ -810,7 +838,6 @@ class WatermarkEmbedder:
                             print(f"清理临时文件失败 {f}: {cleanup_e}")  # Only print cleanup failure info
         # Start worker thread
         threading.Thread(target=worker, daemon=True).start()
-        self.app.hide_processing_window()
 
     def embed_watermark(self, filepath):
         def worker():
@@ -844,7 +871,7 @@ class WatermarkEmbedder:
                         f"是否现在进行分辨率{operation}？"
                     )
                     
-                    if messagebox.askyesno("分辨率提升建议", upgrade_msg):
+                    if self._ask_yes_no("分辨率提升建议", upgrade_msg):
                         self.app.root.after(0, lambda: self.app.show_processing_window("正在提升图片分辨率，请稍候..."))
                         image = image.resize(new_size, Image.LANCZOS)
                         width, height = new_size
@@ -996,9 +1023,6 @@ class WatermarkEmbedder:
 
         # 启动工作线程
         threading.Thread(target=worker, daemon=True).start()
-        
-        # 隐藏处理窗口
-        self.app.hide_processing_window()
 
     def embed_watermark_v013(self, filepath):
         """旧版本兼容方法 - 使用文本水印而非二维码"""
@@ -1089,10 +1113,3 @@ class WatermarkEmbedder:
 
         # 启动工作线程
         threading.Thread(target=worker, daemon=True).start()
-        
-        # 删除临时转换的图片
-        if 'temp_img' in locals() and os.path.exists(temp_img):
-            os.remove(temp_img)
-        
-        # 隐藏处理窗口
-        self.app.hide_processing_window()
