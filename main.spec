@@ -496,16 +496,31 @@ REQUIRED_IMPORTS = [
     'scipy._lib.array_api_compat.numpy.fft',
     'quadrilateral_fitter',
     'quadrilateral_fitter.quadrilateral_fitter',
+    # 添加 pywt 和 scipy 模块以解决多重重名或动态加载失效问题
+    'pywt',
+    'pywt._extensions._pywt',
+    'pywt._extensions._dwt',
+    'pywt._extensions._swt',
+    'pywt._extensions._cwt',
     # 添加 watermark 模块
     'watermark',
     'watermark.embed',
     'watermark.extract',
 ]
 
+import numpy, pywt
+_extra_binaries = []
+
+# 注意：不要在此处手动扫描和收集 numpy/pywt 的 DLL (.dll / .pyd)，
+# PyInstaller 6+ 已内置了对 numpy (包括 numpy.libs 里的 OpenBLAS) 
+# 的专门 hook。如果在这里强行手动 copy，会导致 _multiarray_umath 
+# 重复加载并引发 "CPU dispatcher tracer already initialized" 错误。
+print("📦 依赖将交由 PyInstaller 默认钩子处理，不手动强塞 numpy DLL")
+
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=collect_dynamic_libs('numpy') + collect_dynamic_libs('pywt'),
+    binaries=_extra_binaries,
     datas=[
         # qr模型
         (qrdet_model_path, 'qrdet/.model'),

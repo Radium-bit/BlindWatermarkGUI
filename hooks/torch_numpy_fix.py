@@ -11,11 +11,6 @@ os.environ['PYTORCH_JIT'] = '0'
 os.environ['TORCHDYNAMO_DISABLE'] = '1'
 os.environ['NUMPY_EXPERIMENTAL_ARRAY_FUNCTION'] = '0'
 
-# Windows 特定的 DLL 加载设置
-if sys.platform.startswith('win'):
-    try:
-        import ctypes
-        # 添加 RTLD_GLOBAL 标志
-        sys.setdlopenflags(sys.getdlopenflags() | ctypes.RTLD_GLOBAL)
-    except:
-        pass
+# 注意：Windows 下不要强行使用 RTLD_GLOBAL！
+# 它会污染进程 DLL 空间，导致 numpy 出现 
+# "CPU dispatcher tracer already initlized" 的 RuntimeError

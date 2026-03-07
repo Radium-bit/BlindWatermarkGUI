@@ -117,7 +117,7 @@ def create_splash_screen():
                     current = progress_label.cget("text")
                     next_frame = frames[(frames.index(current) + 1) % len(frames)]
                     progress_label.config(text=next_frame)
-                    splash_window.after(200, animate_progress)
+                    animation_job[0] = splash_window.after(200, animate_progress)
                 else:
                     animation_running[0] = False
             except (tk.TclError, ValueError):
@@ -458,8 +458,19 @@ def show_crash_dialog(title, error_text):
         )
         copy_btn.pack(side="left", padx=8)
 
+        def _do_exit():
+            import os as _os
+            try:
+                root.destroy()
+            except Exception:
+                pass
+            _os._exit(1)
+
+        # 标题栏 X 按钮也触发强制退出
+        root.protocol("WM_DELETE_WINDOW", _do_exit)
+
         tk.Button(
-            btn_frame, text="关闭程序", command=root.destroy,
+            btn_frame, text="关闭程序", command=_do_exit,
             font=("Arial", 9), bg="#e74c3c", fg="white",
             relief="flat", padx=12, pady=4, cursor="hand2"
         ).pack(side="left", padx=8)
@@ -492,6 +503,12 @@ def import_modules_progressively():
         main_root.withdraw()
         
         # P2：常用库
+        # ★ 先导入 numpy，避免 PIL 作为可选依赖导入时触发 numpy 部分初始化。
+        # 若 PIL 导入 numpy 失败，会留下 CPU dispatcher tracer 已初始化的残留状态，
+        # 后续 pywt 再次导入 numpy 时会触发 RuntimeError("CPU dispatcher tracer already initlized")。
+        update_splash_status("加载核心计算模块...")
+        import numpy
+        
         update_splash_status("加载图像处理模块...")
         import tempfile
         import re
@@ -1243,6 +1260,17 @@ if __name__ == "__main__":
     import os
     import sys
 
+    # ★ 最最优先：注册打包目录到 DLL 搜索路径（Python 3.8+ 必需）
+    # Python 3.8 起 Windows 上 C 扩展的 DLL 依赖不再搜索当前目录或 exe 目录，
+    # 必须显式注册，否则 numpy 等 .pyd 找不到 libopenblas 等 DLL。
+    if getattr(sys, 'frozen', False):
+        _meipass = sys._MEIPASS
+        # 方式1：Python 层 DLL 搜索目录（3.8+）
+        if hasattr(os, 'add_dll_directory'):
+            os.add_dll_directory(_meipass)
+            print(f"[DLL] Added to dll_directory: {_meipass}")
+        # 方式2：PATH 环境变量（兜底，部分旧式加载走 PATH）
+        os.environ['PATH'] = _meipass + os.pathsep + os.environ.get('PATH', '')
     # ★ 最优先：从 System32 抢先注册系统版 VC++ DLL（尽力而为）
     # 必须在 tkinter / torch 等任何三方库导入之前执行，
     # 利用 Windows 进程 DLL 缓存机制确保后续所有模块复用系统版本。
