@@ -1,0 +1,70 @@
+QWidget {
+    font-family: "Microsoft YaHei UI";
+    font-size: 12px;
+}
+
+QMainWindow {
+    background: #f4f6f9;
+}
+
+QGroupBox {
+    background: #ffffff;
+    border: 1px solid #d9e1e7;
+    border-radius: 10px;
+    margin-top: 10px;
+    padding: 10px;
+    font-weight: 600;
+}
+
+QGroupBox::title {
+    left: 12px;
+    padding: 0 4px;
+}
+
+QTabWidget::pane {
+    border: 1px solid #d9e1e7;
+    border-radius: 10px;
+    background: #ffffff;
+}
+
+QTabBar::tab {
+    background: #e9eef5;
+    border: 1px solid #d1dae4;
+    padding: 8px 16px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+
+QTabBar::tab:selected {
+    background: #ffffff;
+    border-bottom-color: #ffffff;
+}
+
+QLineEdit, QPlainTextEdit {
+    border: 1px solid #cdd7e3;
+    border-radius: 8px;
+    padding: 6px 8px;
+    background: #ffffff;
+}
+
+QPushButton {
+    background: #2f5ea8;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-weight: 600;
+}
+
+QPushButton:hover {
+    background: #2a5291;
+}
+
+QPushButton:pressed {
+    background: #24477b;
+}
+
+QCheckBox {
+    spacing: 6px;
+}
+

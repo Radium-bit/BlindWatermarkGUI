@@ -1153,6 +1153,14 @@ if __name__ == "__main__":
     # 第一步：只导入最基本的模块
     import os
     import sys
+    
+    requested_ui = os.environ.get("BW_GUI_UI", "tk").strip().lower()
+    raw_args = list(sys.argv[1:])
+    for index, arg in enumerate(raw_args):
+        if arg.startswith("--ui="):
+            requested_ui = arg.split("=", 1)[1].strip().lower()
+        elif arg == "--ui" and index + 1 < len(raw_args):
+            requested_ui = raw_args[index + 1].strip().lower()
 
     # ★ 最最优先：注册打包目录到 DLL 搜索路径（Python 3.8+ 必需）
     # Python 3.8 起 Windows 上 C 扩展的 DLL 依赖不再搜索当前目录或 exe 目录，
@@ -1174,6 +1182,15 @@ if __name__ == "__main__":
             preload_system_vc_runtime()
         except Exception as e:
             print(f"[VC++] Preload attempt failed (non-fatal): {e}")
+
+    if requested_ui in {"qt", "pyside6"}:
+        try:
+            print("正在启动 Qt 界面...")
+            from app.ui_qt.app_entry import run_qt_app
+            exit_code = run_qt_app(sys.argv)
+            sys.exit(exit_code)
+        except Exception as e:
+            print(f"Qt界面启动失败，回退经典界面: {e}")
 
     import tkinter as tk
 

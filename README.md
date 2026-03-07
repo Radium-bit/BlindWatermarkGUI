@@ -201,6 +201,22 @@ dir dist
 python main.py
 ```
 
+### 1.1 Qt 预览界面（迁移第一阶段）
+
+在不影响经典 Tk 界面的前提下，当前已提供 PySide6 预览入口（优先支持文本水印嵌入/提取）。
+
+PowerShell 下可使用：
+
+```powershell
+python main.py --ui qt
+```
+
+或：
+
+```powershell
+$env:BW_GUI_UI='qt'; python main.py
+```
+
 ### 2. 嵌入水印（Embed）
 
 1. 启动后选择 “嵌入水印” 模式
@@ -252,6 +268,8 @@ python main.py
 ## 📄 许可证 License
 
 本项目采用 [Apache License 2.0](LICENSE.txt)。
+
+迁移到 PySide6 后，项目主许可证仍保持 Apache-2.0；第三方组件许可证见 `THIRD_PARTY_NOTICES.md`。
 
 ```text
 Copyright 2025 Radium-bit
