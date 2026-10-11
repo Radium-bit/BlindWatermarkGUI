@@ -1,4 +1,3 @@
-from .job_models import EmbedTextJob, ExtractTextJob, JobResult
+from .job_models import EmbedFileJob, EmbedTextJob, ExtractFileJob, ExtractTextJob, JobResult
 
-__all__ = ["EmbedTextJob", "ExtractTextJob", "JobResult"]
-
+__all__ = ["EmbedFileJob", "EmbedTextJob", "ExtractFileJob", "ExtractTextJob", "JobResult"]

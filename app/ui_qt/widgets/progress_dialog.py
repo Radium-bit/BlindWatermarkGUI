@@ -12,12 +12,14 @@ class ProgressDialog(QDialog):
         self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
         self.setMinimumWidth(360)
 
-        label = QLabel(title, self)
-        label.setWordWrap(True)
+        self._label = QLabel(title, self)
+        self._label.setWordWrap(True)
         progress = QProgressBar(self)
         progress.setRange(0, 0)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(label)
+        layout.addWidget(self._label)
         layout.addWidget(progress)
 
+    def set_message(self, text: str) -> None:
+        self._label.setText(text)

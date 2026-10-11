@@ -40,6 +40,7 @@ class OptionsPanel(QGroupBox):
         self.enhanced_mode = QCheckBox("增强模式", self)
         self.custom_file_mode = QCheckBox("自定义文件嵌入", self)
         self.rc1_mode = QCheckBox("RC1 路径", self)
+        self.rc1_mode.setChecked(True)
 
         form = QFormLayout()
         form.addRow("密码", self.password_edit)
@@ -55,6 +56,20 @@ class OptionsPanel(QGroupBox):
         root_layout.addLayout(form)
         root_layout.addLayout(toggles)
 
+    def set_mode_checked(self, key: str, checked: bool) -> None:
+        mapping = {
+            "compatibility_mode": self.compatibility_mode,
+            "enhanced_mode": self.enhanced_mode,
+            "custom_file_mode": self.custom_file_mode,
+            "rc1_mode": self.rc1_mode,
+        }
+        widget = mapping.get(key)
+        if widget is None:
+            return
+        was_blocked = widget.blockSignals(True)
+        widget.setChecked(bool(checked))
+        widget.blockSignals(was_blocked)
+
     def _pick_output_dir(self) -> None:
         directory = QFileDialog.getExistingDirectory(self, "选择输出目录", self.output_dir_edit.text().strip())
         if directory:
@@ -69,4 +84,3 @@ class OptionsPanel(QGroupBox):
             "custom_file_mode": self.custom_file_mode.isChecked(),
             "rc1_mode": self.rc1_mode.isChecked(),
         }
-

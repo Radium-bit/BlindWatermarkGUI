@@ -42,6 +42,13 @@ class EmbedPanel(QWidget):
         root_layout.addLayout(form)
         root_layout.addWidget(self.run_button)
 
+    def set_text_mode_enabled(self, enabled: bool) -> None:
+        self.watermark_text_edit.setEnabled(enabled)
+        if enabled:
+            self.watermark_text_edit.setPlaceholderText("")
+        else:
+            self.watermark_text_edit.setPlaceholderText("已切换到自定义文件模式，文本输入将被忽略。")
+
     def _pick_image(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -58,4 +65,3 @@ class EmbedPanel(QWidget):
         if custom_name:
             return f"{custom_name}{suffix}"
         return f"{input_image.stem}-QtWatermark{suffix}"
-

@@ -197,24 +197,28 @@ dir dist
 
 或下载源代码后，通过以下命令运行：
 
-```bash
-python main.py
+```powershell
+uv run python main.py
 ```
 
-### 1.1 Qt 预览界面（迁移第一阶段）
+### 1.1 Qt 预览界面（迁移第二阶段）
 
-在不影响经典 Tk 界面的前提下，当前已提供 PySide6 预览入口（优先支持文本水印嵌入/提取）。
+在不影响经典 Tk 界面的前提下，当前已提供 PySide6 预览入口，已覆盖以下链路：
+
+- 文本水印嵌入/提取（默认 v2）
+- 兼容模式（v1）文本嵌入/提取
+- 自定义文件嵌入/提取（支持 RC1 路径）
 
 PowerShell 下可使用：
 
 ```powershell
-python main.py --ui qt
+uv run python main.py --ui qt
 ```
 
 或：
 
 ```powershell
-$env:BW_GUI_UI='qt'; python main.py
+$env:BW_GUI_UI='qt'; uv run python main.py
 ```
 
 ### 2. 嵌入水印（Embed）
