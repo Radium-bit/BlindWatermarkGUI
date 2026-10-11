@@ -17,6 +17,16 @@ main_root = None  # 主根窗口
 # 持有系统 VC++ DLL 句柄，防止被 GC 释放
 _vc_runtime_handles = []
 
+# 持有 os.add_dll_directory 返回的句柄：句柄被回收时该目录会从 DLL
+# 搜索路径中移除，因此必须显式保存，否则注册等于没做。
+_frozen_dll_dir_handles = []
+
+# 持有预加载的原生 DLL 句柄（OpenBLAS 等），防止被 GC 卸载
+_native_preload_handles = []
+
+# 打包环境原生依赖自检结果，模块导入失败时随崩溃信息一起展示
+_native_dep_report = []
+
 def preload_system_vc_runtime():
     """
     在任何三方库导入前，从 System32 用绝对路径显式加载系统版 VC++ 运行库。
@@ -48,8 +58,123 @@ def preload_system_vc_runtime():
             print(f"[VC++] Loaded from System32: {dll_name}")
         except OSError as e:
             print(f"[VC++] Failed to load {dll_name} from System32: {e}")
+            _native_dep_report.append(f"系统 VC++ 运行库: 加载失败 {dll_name} -> {e}")
             return False
+    _native_dep_report.append("系统 VC++ 运行库: System32 中的版本均已加载")
     return True
+
+def register_frozen_dll_dirs():
+    """
+    把打包目录及其 *.libs 子目录注册进 DLL 搜索路径。
+
+    Python 3.8 起，Windows 不再为扩展模块的依赖库搜索 exe 目录/当前目录，
+    而 numpy/scipy/Shapely/pandas 的 OpenBLAS、GEOS 等原生库都放在各自
+    的 *.libs 子目录中。未注册时这些扩展会以
+    "DLL load failed while importing _multiarray_umath" 之类的形式启动失败。
+    """
+    import os
+    import sys
+
+    if not getattr(sys, 'frozen', False):
+        return
+    meipass = getattr(sys, '_MEIPASS', None)
+    if not meipass or not os.path.isdir(meipass):
+        return
+
+    dirs = [meipass]
+    try:
+        for entry in os.listdir(meipass):
+            full_path = os.path.join(meipass, entry)
+            if entry.lower().endswith('.libs') and os.path.isdir(full_path):
+                dirs.append(full_path)
+    except OSError:
+        pass
+
+    for path in dirs:
+        if not os.path.isdir(path):
+            continue
+        if hasattr(os, 'add_dll_directory'):
+            # ★ 必须保存返回值：句柄被回收时该目录会立即从搜索路径移除
+            _frozen_dll_dir_handles.append(os.add_dll_directory(path))
+        # 兜底：部分旧式加载仍走 PATH
+        os.environ['PATH'] = path + os.pathsep + os.environ.get('PATH', '')
+        print(f"[DLL] 已注册搜索目录: {path}")
+
+def preload_bundled_native_deps():
+    """
+    预加载打包目录中的关键 OpenBLAS DLL，并记录启动自检结果。
+
+    numpy 导入时会自行从 numpy/.libs 预加载 OpenBLAS，但该步骤依赖文件
+    完整存在：若解压被杀毒软件拦截、文件被截断或目录缺失，预加载会静默
+    跳过，直到 numpy 的 C 扩展被加载时才以 "DLL load failed ..." 报错。
+    这里在导入三方库之前主动加载并记录，便于把环境问题翻译成可执行提示。
+    """
+    import ctypes
+    import glob
+    import os
+    import sys
+
+    global _native_dep_report
+    _native_dep_report = []
+    if not getattr(sys, 'frozen', False):
+        return
+
+    meipass = getattr(sys, '_MEIPASS', '')
+    targets = [
+        ('numpy OpenBLAS', os.path.join(meipass, 'numpy', '.libs'), '*openblas*.dll'),
+        ('numpy OpenBLAS(根目录副本)', meipass, 'libopenblas*.dll'),
+        ('scipy OpenBLAS', os.path.join(meipass, 'scipy.libs'), '*openblas*.dll'),
+    ]
+    for label, directory, pattern in targets:
+        found = []
+        if os.path.isdir(directory):
+            found = sorted(glob.glob(os.path.join(directory, pattern)))
+        if not found:
+            _native_dep_report.append(f"{label}: 未找到（目录 {directory}）")
+            print(f"[DLL] 未找到 {label}: {directory}")
+            continue
+        for path in found:
+            try:
+                size = os.path.getsize(path)
+                # 与 numpy 自身的 .libs 预加载保持一致：用绝对路径显式加载
+                _native_preload_handles.append(ctypes.WinDLL(os.path.abspath(path)))
+                _native_dep_report.append(
+                    f"{label}: 正常（{os.path.basename(path)}，{size} 字节）"
+                )
+                print(f"[DLL] 已预加载 {label}: {os.path.basename(path)} ({size} 字节)")
+            except OSError as e:
+                _native_dep_report.append(f"{label}: 加载失败 {os.path.basename(path)} -> {e}")
+                print(f"[DLL] 预加载失败 {label}: {e}")
+
+def build_module_import_hint(tb_str):
+    """
+    按错误特征生成可执行的中文排查建议。
+
+    仅当错误信息呈现"原生库加载失败"特征时才返回内容，其余情况返回空串，
+    保持原有崩溃信息格式不变。
+    """
+    if not isinstance(tb_str, str):
+        return ""
+    markers = ('_multiarray_umath', 'DLL load failed', '找不到指定的模块', '找不到指定的程序')
+    if not any(marker in tb_str for marker in markers):
+        return ""
+
+    lines = [
+        "\n—— 疑似原生库(DLL)加载失败，请依次排查 ——",
+        "1. 将程序所在目录加入杀毒软件/安全软件白名单（含实时防护例外），"
+        "并删除系统临时目录中的 _MEI* 文件夹后重新运行；",
+        "2. 安装或更新 “Microsoft Visual C++ 2015-2022 Redistributable (x64)”，"
+        "程序目录内已附带 VC_redist.x64.exe，安装完成后请重启电脑；",
+        "3. 若直接在压缩包/网络共享目录中运行，请先完整解压到本地磁盘"
+        "（例如 D:\\BlindWatermarkGUI）再运行；",
+        "4. 以上均无效时可尝试以管理员身份运行，或使用安装版重新安装。",
+    ]
+    if _native_dep_report:
+        lines.append("启动自检结果：")
+        lines.extend(f"  · {item}" for item in _native_dep_report)
+    else:
+        lines.append("启动自检结果：未采集（非打包环境运行）")
+    return "\n".join(lines) + "\n"
 
 def create_main_root():
     """创建主根窗口（不可见）"""
@@ -1165,14 +1290,16 @@ if __name__ == "__main__":
     # ★ 最最优先：注册打包目录到 DLL 搜索路径（Python 3.8+ 必需）
     # Python 3.8 起 Windows 上 C 扩展的 DLL 依赖不再搜索当前目录或 exe 目录，
     # 必须显式注册，否则 numpy 等 .pyd 找不到 libopenblas 等 DLL。
-    if getattr(sys, 'frozen', False):
-        _meipass = sys._MEIPASS
-        # 方式1：Python 层 DLL 搜索目录（3.8+）
-        if hasattr(os, 'add_dll_directory'):
-            os.add_dll_directory(_meipass)
-            print(f"[DLL] Added to dll_directory: {_meipass}")
-        # 方式2：PATH 环境变量（兜底，部分旧式加载走 PATH）
-        os.environ['PATH'] = _meipass + os.pathsep + os.environ.get('PATH', '')
+    try:
+        register_frozen_dll_dirs()
+    except Exception as e:
+        print(f"[DLL] 注册打包目录失败（非致命）: {e}")
+    # ★ 预加载打包目录内的 OpenBLAS：解压不完整/被安全软件拦截时，
+    # 这一步的自检结果会随崩溃信息一并展示，避免只看到难以理解的 DLL 报错。
+    try:
+        preload_bundled_native_deps()
+    except Exception as e:
+        print(f"[DLL] 预加载原生依赖失败（非致命）: {e}")
     # ★ 最优先：从 System32 抢先注册系统版 VC++ DLL（尽力而为）
     # 必须在 tkinter / torch 等任何三方库导入之前执行，
     # 利用 Windows 进程 DLL 缓存机制确保后续所有模块复用系统版本。
@@ -1226,11 +1353,13 @@ if __name__ == "__main__":
         if result is not True:
             close_splash()
             tb_str = result if isinstance(result, str) else "(未知错误，请查看控制台输出)"
+            hint = build_module_import_hint(tb_str)
             error_msg = (
                 f"程序启动失败：模块导入出错\n\n"
                 f"版本: BlindWatermarkGUI\n"
-                f"请将此信息提交至项目 Issues 页面。\n\n"
-                f"— 错误详情 —\n{tb_str}"
+                f"请将此信息提交至项目 Issues 页面。\n"
+                f"{hint}"
+                f"\n— 错误详情 —\n{tb_str}"
             )
             show_crash_dialog("模块加载失败", error_msg)
             sys.exit(1)
