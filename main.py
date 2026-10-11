@@ -14,9 +14,6 @@ splash_window = None
 splash_status_label = None
 main_root = None  # 主根窗口
 
-# 持有系统 VC++ DLL 句柄，防止被 GC 释放
-_vc_runtime_handles = []
-
 # 持有 os.add_dll_directory 返回的句柄：句柄被回收时该目录会从 DLL
 # 搜索路径中移除，因此必须显式保存，否则注册等于没做。
 _frozen_dll_dir_handles = []
@@ -27,41 +24,166 @@ _native_preload_handles = []
 # 打包环境原生依赖自检结果，模块导入失败时随崩溃信息一起展示
 _native_dep_report = []
 
-def preload_system_vc_runtime():
+# 随包 C++ 运行库（thirdParty/vc_runtime/x64，见 main.spec 与 THIRD_PARTY_NOTICES.md）
+_vc_runtime_bundled_handles = []
+_vc_runtime_loaded_paths = {}
+_vc_runtime_required = [
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "vcruntime140_threads.dll",
+    "msvcp140.dll",
+    "msvcp140_1.dll",
+    "msvcp140_2.dll",
+    "msvcp140_atomic_wait.dll",
+    "msvcp140_codecvt_ids.dll",
+    "concrt140.dll",
+    "vccorlib140.dll",
+    "vcamp140.dll",
+    "vcomp140.dll",
+]
+
+def _bundled_dir():
+    """返回随包资源目录；非打包环境返回 None。"""
+    import os
+    import sys
+
+    if not getattr(sys, 'frozen', False):
+        return None
+    meipass = getattr(sys, '_MEIPASS', None)
+    if meipass and os.path.isdir(meipass):
+        return meipass
+    exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+    return exe_dir if os.path.isdir(exe_dir) else None
+
+def read_version_from_app_env():
+    """不依赖 dotenv 读取 APP.ENV 中的版本号，供启动画面尽早显示。"""
+    import os
+    import re
+
+    try:
+        base = _bundled_dir() or os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(base, 'APP.ENV')
+        if not os.path.isfile(path):
+            return ""
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('VERSION'):
+                    value = line.split('=', 1)[1].strip() if '=' in line else ""
+                    return value.strip("'\"")
+    except Exception:
+        pass
+    return ""
+
+def get_loaded_dll_path(module_name):
+    """查询指定模块在当前进程内的实际来源路径；查不到返回空串。
+
+    用于启动自检与 Process Monitor 抓取结果互相印证：能直接说明
+    vcruntime140.dll 等到底来自随包目录还是 System32。
     """
-    在任何三方库导入前，从 System32 用绝对路径显式加载系统版 VC++ 运行库。
+    import ctypes
+    try:
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel32.GetModuleHandleW.restype = ctypes.c_void_p
+        kernel32.GetModuleHandleW.argtypes = [ctypes.c_wchar_p]
+        handle = kernel32.GetModuleHandleW(module_name)
+        if not handle:
+            return ""
+        buf = ctypes.create_unicode_buffer(1024)
+        kernel32.GetModuleFileNameW.restype = ctypes.c_uint
+        kernel32.GetModuleFileNameW.argtypes = [
+            ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint
+        ]
+        if kernel32.GetModuleFileNameW(handle, buf, 1024):
+            return buf.value
+    except Exception:
+        pass
+    return ""
 
-    Windows 进程内同名 DLL 只加载一次——已注册到缓存的句柄会被后续所有
-    加载请求复用。因此只要在最早时机从 System32 加载，就能阻止 PyInstaller
-    临时目录内的残缺版本被抢先占位。
+def preload_bundled_vc_runtime():
+    """在任何三方库导入前，优先加载随包 C++ 运行库，失败才回退 System32。
 
-    Returns:
-        True  - 所有必需 DLL 均已从 System32 成功加载
-        False - 至少一个 DLL 加载失败（系统未安装 VC++ Redist）
+    这样进程内 vcruntime140/msvcp140 等 DLL 的最终来源就是程序自带的那一份，
+    目标机是否安装 VC++ Redistributable 不再影响启动。
+
+    设置环境变量 BW_DISABLE_BUNDLED_CRT=1 可强制走系统版本；
+    BW_FORCE_BUNDLED_CRT=1 则连回退也禁止（用于验证"只靠随包运行库"的启动链路）。
     """
     import ctypes
     import os
+    import sys
 
-    system32 = os.path.join(
-        os.environ.get("SystemRoot", r"C:\Windows"), "System32"
-    )
-    required_dlls = [
-        "vcruntime140.dll",
-        "vcruntime140_1.dll",
-        "msvcp140.dll",
-    ]
-    for dll_name in required_dlls:
-        dll_path = os.path.join(system32, dll_name)
-        try:
-            handle = ctypes.WinDLL(dll_path)
-            _vc_runtime_handles.append(handle)  # 持有引用防止被 GC
-            print(f"[VC++] Loaded from System32: {dll_name}")
-        except OSError as e:
-            print(f"[VC++] Failed to load {dll_name} from System32: {e}")
-            _native_dep_report.append(f"系统 VC++ 运行库: 加载失败 {dll_name} -> {e}")
-            return False
-    _native_dep_report.append("系统 VC++ 运行库: System32 中的版本均已加载")
-    return True
+    if not sys.platform.startswith('win'):
+        return {}
+
+    bundled_dir = _bundled_dir()
+    disable_bundled = os.environ.get('BW_DISABLE_BUNDLED_CRT') == '1'
+    force_bundled = os.environ.get('BW_FORCE_BUNDLED_CRT') == '1'
+    system32 = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
+
+    loaded = {}
+    bundled_hits = 0
+    for dll_name in _vc_runtime_required:
+        candidates = []
+        if bundled_dir and not disable_bundled:
+            candidates.append(os.path.join(bundled_dir, dll_name))
+        if not force_bundled:
+            candidates.append(os.path.join(system32, dll_name))
+        for index, path in enumerate(candidates):
+            if not os.path.isfile(path):
+                continue
+            try:
+                handle = ctypes.WinDLL(os.path.abspath(path))
+                if index == 0:
+                    # 持有句柄，避免被 GC 回收；同时防止后续同名加载被临时目录抢先
+                    _vc_runtime_bundled_handles.append(handle)
+                    bundled_hits += 1
+                _vc_runtime_loaded_paths[dll_name] = get_loaded_dll_path(dll_name) or path
+                loaded[dll_name] = path
+                print(f"[C++运行库] 已加载 {dll_name} <- {path}")
+                break
+            except OSError as e:
+                print(f"[C++运行库] 加载失败 {path}: {e}")
+        else:
+            _vc_runtime_loaded_paths[dll_name] = ""
+            print(f"[C++运行库] 未找到可用副本: {dll_name}")
+
+    if bundled_dir and not disable_bundled:
+        _native_dep_report.append(
+            f"随包 C++ 运行库: 命中 {bundled_hits}/{len(_vc_runtime_required)} 个"
+            + ("（不足时已回退系统副本）" if bundled_hits < len(_vc_runtime_required) else "")
+        )
+    else:
+        _native_dep_report.append("随包 C++ 运行库: 未启用（非打包环境或已由环境变量禁用）")
+    return loaded
+
+def is_vc_runtime_ready():
+    """随包或系统运行库是否已就绪（用于启动前的兜底判断）。"""
+    return all(_vc_runtime_loaded_paths.get(name) for name in _vc_runtime_required)
+
+def find_system_vc_runtime_version():
+    """读取系统已安装的 VC++ Redistributable 版本，仅用于提示与排查。"""
+    try:
+        import winreg
+        key_path = r"SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64"
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
+            version, _ = winreg.QueryValueEx(key, "Version")
+            return str(version)
+    except Exception:
+        return ""
+
+def show_extreme_fallback_dialog(title, message):
+    """极端场景兜底提示：连 tkinter 都用不了时，用原生 MessageBox 弹窗。
+
+    仅在 Python 已启动、但 UI 框架不可用的失败路径中调用。
+    """
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, message, title, 0x00000010 | 0x00010000)
+        return True
+    except Exception as e:
+        print(f"[极端兜底] 原生提示窗口也失败: {e}")
+        return False
 
 def register_frozen_dll_dirs():
     """
@@ -114,8 +236,6 @@ def preload_bundled_native_deps():
     import os
     import sys
 
-    global _native_dep_report
-    _native_dep_report = []
     if not getattr(sys, 'frozen', False):
         return
 
@@ -383,8 +503,16 @@ def install_vc_redist():
         raise
 
 def update_splash_status(text):
-    """更新启动画面状态"""
+    """更新启动画面状态：原生窗口优先，其次经典 Tk 启动画面。"""
     global splash_window, splash_status_label, main_root
+
+    # 原生启动画面：不依赖 Tk，因此在 Qt 路径与 Tk 路径下都能用
+    try:
+        from app.ui_native import splash as native_splash
+        native_splash.set_status(text)
+    except Exception:
+        pass
+
     if (splash_window and splash_status_label and 
         splash_window.winfo_exists() and main_root and main_root.winfo_exists()):
         try:
@@ -394,8 +522,17 @@ def update_splash_status(text):
             pass
 
 def close_splash():
-    """关闭启动画面"""
+    """关闭启动画面（原生与经典两条路径都处理），可重复调用。"""
     global splash_window
+    # 原生启动画面
+    try:
+        from app.ui_native import splash as native_splash
+        ms = native_splash.close()
+        if ms:
+            print(f"原生启动画面已关闭，显示时长 {ms} ms")
+    except Exception as e:
+        print(f"关闭原生启动画面时出错: {e}")
+
     if splash_window:
         try:
             print("正在关闭启动画面...")
@@ -1294,25 +1431,34 @@ if __name__ == "__main__":
         register_frozen_dll_dirs()
     except Exception as e:
         print(f"[DLL] 注册打包目录失败（非致命）: {e}")
+    # ★ 随包 C++ 运行库优先：必须在任何三方库导入之前完成。
+    # Windows 进程内同名 DLL 只加载一次，先加载随包副本，后续所有模块都会
+    # 复用它，目标机是否安装 VC++ Redistributable 不再影响启动。
+    # 失败则自动回退 System32（BW_FORCE_BUNDLED_CRT=1 可禁止回退用于验证）。
+    try:
+        preload_bundled_vc_runtime()
+    except Exception as e:
+        print(f"[C++运行库] 预加载失败（非致命）: {e}")
     # ★ 预加载打包目录内的 OpenBLAS：解压不完整/被安全软件拦截时，
     # 这一步的自检结果会随崩溃信息一并展示，避免只看到难以理解的 DLL 报错。
     try:
         preload_bundled_native_deps()
     except Exception as e:
         print(f"[DLL] 预加载原生依赖失败（非致命）: {e}")
-    # ★ 最优先：从 System32 抢先注册系统版 VC++ DLL（尽力而为）
-    # 必须在 tkinter / torch 等任何三方库导入之前执行，
-    # 利用 Windows 进程 DLL 缓存机制确保后续所有模块复用系统版本。
-    # 注意：此步骤仅用于 DLL 优先级优化，失败不影响程序启动。
-    if sys.platform.startswith('win'):
-        try:
-            preload_system_vc_runtime()
-        except Exception as e:
-            print(f"[VC++] Preload attempt failed (non-fatal): {e}")
+
+    # ★ 原生启动画面：纯 ctypes，不导入任何三方库，因此在 onefile 解压完成
+    # 后的第一时间就能显示，覆盖 Qt / Tk 两条路径以及模块导入的等待期。
+    try:
+        from app.ui_native import splash as _native_splash
+        _native_splash.create(read_version_from_app_env())
+        print("[启动画面] 原生启动画面已显示")
+    except Exception as e:
+        print(f"[启动画面] 原生启动画面不可用（非致命）: {e}")
 
     if requested_ui in {"qt", "pyside6"}:
         try:
             print("正在启动 Qt 界面...")
+            update_splash_status("正在启动 Qt 界面...")
             from app.ui_qt.app_entry import run_qt_app
             exit_code = run_qt_app(sys.argv)
             sys.exit(exit_code)
@@ -1327,24 +1473,57 @@ if __name__ == "__main__":
         print("主根窗口创建成功")
     except Exception as e:
         print(f"无法创建主根窗口: {e}")
+        close_splash()
+        show_extreme_fallback_dialog(
+            "BlindWatermarkGUI 启动失败",
+            "程序无法创建用户界面（Tk 初始化失败）。\n\n"
+            "这通常意味着系统的 Microsoft Visual C++ 运行库不完整。\n"
+            f"随包运行库加载情况：{'正常' if is_vc_runtime_ready() else '不完整'}\n"
+            f"系统已安装版本：{find_system_vc_runtime_version() or '未检出'}\n\n"
+            "请安装 “Microsoft Visual C++ 2015-2022 Redistributable (x64)” 后重试：\n"
+            "https://aka.ms/vs/17/release/vc_redist.x64.exe",
+        )
         sys.exit(1)
     
-    # 第三步：显示启动画面
+    # 第三步：启动画面
+    # 原生启动画面已覆盖该阶段时不再创建经典 Tk 启动画面，避免两个启动界面重叠；
+    # 只有在原生启动画面不可用时才回退到 Tk 版本。
+    native_splash_active = False
     try:
-        splash = create_splash_screen()
-        print("启动画面创建成功")
-    except Exception as e:
-        print(f"无法创建启动画面: {e}")
-        # 如果启动画面创建失败，继续运行但不显示启动画面
+        from app.ui_native import splash as _native_splash
+        native_splash_active = bool(_native_splash._state.enabled)
+    except Exception:
         pass
+    if not native_splash_active:
+        try:
+            splash = create_splash_screen()
+            print("启动画面创建成功")
+        except Exception as e:
+            print(f"无法创建启动画面: {e}")
+            # 如果启动画面创建失败，继续运行但不显示启动画面
+            pass
     
     try:
-        ## 在加载UI这些模块之前，先检查是否存在Visual C++ Redist x64
-        ## 不存在的话帮用户打开进行安装，安装包在打包环境的根目录中，叫VC_redist.x64.exe
-        print("Checking VC++ Redist...")
-        if not check_vc_redist():
-            print("Installing VC++ Redist...")
-            install_vc_redist()
+        ## 随包 C++ 运行库已加载时不再要求系统安装 VC++ Redist；
+        ## 仅当随包与系统副本都不可用（极端环境）才提示安装。
+        if not is_vc_runtime_ready():
+            print("C++ 运行库自检未通过，开始检查系统 VC++ Redist...")
+            if check_vc_redist():
+                print("系统已安装符合要求的 VC++ Redist，继续启动")
+            else:
+                print("未检出可用的 C++ 运行库，转为提示用户安装")
+                close_splash()
+                show_extreme_fallback_dialog(
+                    "缺少 Microsoft Visual C++ 运行库",
+                    "程序自带的 C++ 运行库未能加载，系统也未安装可用的版本，\n"
+                    "无法继续启动。\n\n"
+                    "请安装 “Microsoft Visual C++ 2015-2022 Redistributable (x64)”，\n"
+                    "安装完成后重新启动本程序：\n"
+                    "https://aka.ms/vs/17/release/vc_redist.x64.exe",
+                )
+                sys.exit(1)
+        else:
+            print("随包 C++ 运行库自检通过，跳过系统 VC++ Redist 检查")
 
         # 第四步：逐步导入其他模块
         update_splash_status("准备加载程序模块...")
@@ -1375,6 +1554,9 @@ if __name__ == "__main__":
         
         # 第六步：创建主应用
         update_splash_status("创建主应用...")
+        # ★ 关闭启动画面必须在启动线程与主循环之前，避免进度提示提前消失、
+        # 也避免两个窗口争夺前台焦点。
+        close_splash()
         
         # 动态创建App类
         App = create_app_class()
@@ -1423,5 +1605,19 @@ if __name__ == "__main__":
             f"请将此信息提交至项目 Issues 页面。\n\n"
             f"— 错误详情 —\n{tb_str}"
         )
-        show_crash_dialog("程序崩溃", error_msg)
+        # 崩溃弹窗自身也可能不可用（例如 Tk 初始化失败），此时退回原生 MessageBox，
+        # 保证"无论失败在哪个阶段，用户都能看到一条可读的中文提示"。
+        try:
+            show_crash_dialog("程序崩溃", error_msg)
+        except Exception as dialog_err:
+            print(f"[兜底] 崩溃报告窗口不可用: {dialog_err}")
+            brief = tb_str.strip().splitlines()
+            tail = "\n".join(brief[-12:]) if brief else str(e)
+            show_extreme_fallback_dialog(
+                "BlindWatermarkGUI 启动失败",
+                f"程序启动过程中发生错误，无法继续运行。\n\n"
+                f"随包运行库加载：{'正常' if is_vc_runtime_ready() else '不完整'}\n\n"
+                f"错误摘要：\n{tail}\n\n"
+                f"完整日志请查看程序目录下的 current.log。",
+            )
         sys.exit(1)

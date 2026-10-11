@@ -527,6 +527,36 @@ _extra_binaries = []
 ultralytics_datas = collect_data_files('ultralytics') if ENABLE_ULTRALYTICS_DATA else []
 print(f"📦 ultralytics datas enabled: {ENABLE_ULTRALYTICS_DATA}, items={len(ultralytics_datas)}")
 
+# ── 随包分发的 Microsoft C++ 运行库 ──────────────────────────────────
+# 目标：不依赖目标机是否安装 VC++ Redistributable。这些 DLL 取自官方
+# 《Microsoft Visual C++ 2015-2022 Redistributable (x64)》安装载荷
+# （thirdParty/vc_runtime/x64/README.md 记录了来源与校验方式），随包分发。
+# 注意：不含 ucrtbase.dll —— UCRT 在 Windows 10 起属于操作系统组件，
+# 且以 api-set 形式激活，应用程序本地副本无法覆盖它，硬塞只会带来风险。
+VC_RUNTIME_DIR = os.path.join('thirdParty', 'vc_runtime', 'x64')
+VC_RUNTIME_DLLS = [
+    'vcruntime140.dll',
+    'vcruntime140_1.dll',
+    'vcruntime140_threads.dll',
+    'msvcp140.dll',
+    'msvcp140_1.dll',
+    'msvcp140_2.dll',
+    'msvcp140_atomic_wait.dll',
+    'msvcp140_codecvt_ids.dll',
+    'concrt140.dll',
+    'vccorlib140.dll',
+    'vcamp140.dll',
+    'vcomp140.dll',
+]
+_vc_runtime_binaries = []
+for _dll in VC_RUNTIME_DLLS:
+    _dll_path = os.path.join(VC_RUNTIME_DIR, _dll)
+    if not os.path.isfile(_dll_path):
+        raise SystemExit(f"❌ 缺少随包运行库: {_dll_path}（见 thirdParty/vc_runtime/x64/README.md）")
+    _vc_runtime_binaries.append((_dll_path, '.'))
+_extra_binaries += _vc_runtime_binaries
+print(f"📦 随包 C++ 运行库: {len(_vc_runtime_binaries)} 个 DLL，来自 {VC_RUNTIME_DIR}")
+
 # 注意：不要在此处手动扫描和收集 numpy/pywt 的 DLL (.dll / .pyd)，
 # PyInstaller 6+ 已内置了对 numpy (包括 numpy.libs 里的 OpenBLAS) 
 # 的专门 hook。如果在这里强行手动 copy，会导致 _multiarray_umath 
@@ -562,27 +592,72 @@ a = Analysis(
     hookspath=[hooks_dir],
     hooksconfig={},
     runtime_hooks=[os.path.join(hooks_dir, 'torch_numpy_fix.py')],
-    excludes=[
-    "vcruntime140.dll",
-    "vcruntime140_1.dll",
-    "msvcp140.dll",
-    ],
+    excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False
 )
 
-excluded_dlls = {
-    'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll',
-    'vcruntime140d.dll', 'vcruntime140_1d.dll', 'msvcp140d.dll',
-    'concrt140.dll', 'concrt140d.dll'
-}
+# 二进制去重：同名文件只保留一份，且优先使用我们自己声明的随包运行库。
+# a.binaries 是 TOC 形态的三元组 (name, path, typecode)：按 name 去重；
+# 对随包运行库，把 path 换成 thirdParty 里的那份，确保打包用的是自带副本。
+def _binary_entry(src_path):
+    """把随包运行库的源路径转成 TOC 三元组 (name, path, 'BINARY')。"""
+    return (os.path.basename(src_path), src_path, 'BINARY')
 
-# 手动过滤 a.binaries 以彻底排除这些 DLL
-print(f"Before filter: {len(a.binaries)} binaries")
-a.binaries = [x for x in a.binaries if os.path.basename(x[0]).lower() not in excluded_dlls]
-print(f"After filter: {len(a.binaries)} binaries")
+
+_vc_runtime_entries = [_binary_entry(src) for src, _dest in _vc_runtime_binaries]
+_vc_runtime_by_name = {entry[0].lower(): entry[1] for entry in _vc_runtime_entries}
+
+print(f"Before dedup: {len(a.binaries)} binaries")
+_binaries_by_name = {}
+for _entry in a.binaries:
+    if len(_entry) != 3:
+        raise SystemExit(f"❌ a.binaries 含非 TOC 三元组条目: {_entry!r}")
+    _key = _entry[0].replace('/', '\\').lower()
+    _binaries_by_name.setdefault(_key, []).append(_entry)
+
+_kept, _dropped = [], []
+for _key, _entries in _binaries_by_name.items():
+    # 同一目标名出现多次时只保留一条，随包运行库用 thirdParty 副本覆盖来源路径
+    _name, _path, _type = _entries[0]
+    _kept.append((_name, _vc_runtime_by_name.get(_key, _path), _type))
+    _dropped.extend(_entries[1:])
+# 兜底：若依赖分析没有收集到某个随包运行库，就直接补进 TOC
+_kept_names = {entry[0].lower() for entry in _kept}
+for _entry in _vc_runtime_entries:
+    if _entry[0].lower() not in _kept_names:
+        _kept.append(_entry)
+        _kept_names.add(_entry[0].lower())
+a.binaries = _kept
+print(f"After dedup:  {len(a.binaries)} binaries（移除重复 {len(_dropped)} 项）")
+
+# 交接自检：COLLECT 会把每个 TOC 条目复制到 <dist>/_internal/<name>。
+# 若 name 为空、'.' 或结尾是分隔符，复制目标会退化成目录（例如 "_internal\."），
+# 在 Windows 上表现为 PermissionError: [Errno 13] ... '_internal\.'。
+# 这里在构建中断言，避免出现难以定位的复制失败。
+def _assert_valid_toc_names(status):
+    for _toc_name, _entries in status.items():
+        for _entry in _entries:
+            if len(_entry) != 3:
+                raise SystemExit(f"❌ {_toc_name} 存在非三元组条目: {_entry!r}")
+            _name = _entry[0]
+            if (not isinstance(_name, str)) or (not _name.strip()) or _name.strip() in {'.', '\\', '/'}:
+                raise SystemExit(f"❌ {_toc_name} 存在非法目标名条目: {_entry!r}")
+    print("✔ TOC 交接自检通过：所有条目的目标名均合法")
+
+
+_assert_valid_toc_names({
+    'binaries': a.binaries,
+    'datas': a.datas,
+    'zipfiles': a.zipfiles,
+})
+
+for _src, _dest in sorted(_vc_runtime_binaries, key=lambda item: item[0]):
+    _name = os.path.basename(_src)
+    _hit = [entry for entry in a.binaries if entry[0].lower() == _name.lower()]
+    print(f"   ✔ 随包运行库 {_name} -> 最终来源 {_hit[0][1] if _hit else '缺失'}")
 
 # pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher, compression=lzma, compression_level=COMPRESS_LEVEL)

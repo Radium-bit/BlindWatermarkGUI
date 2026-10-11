@@ -34,9 +34,11 @@
 
 ## ⚠️ 注意事项
 
-1. **由于程序使用了较多运行库，双击后没反应请稍后，一般在30秒内会响应，请勿同时运行多个本程序。** 目前仍在持续优化中...
+1. **由于程序体积较大，onefile 版双击后会先静默解压（实测约 20~50 秒，取决于磁盘与安全软件），随后才显示启动画面。** 请勿同时运行多个本程序；若希望省略这段等待，请使用 `_Installer` 安装版（见下文下载说明）。
 
-2. **如启动时失败，程序不断重启，请安装 [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) 点击即可下载**
+2. **程序已自带 C++ 运行库，通常无需再安装 [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)。** 随包运行库位于程序目录的 `thirdParty/vc_runtime/x64/`，启动时会优先加载（实现见 `main.py` 的 `preload_bundled_vc_runtime()`）。
+   
+   仅当系统连 UCRT（`ucrtbase.dll`，Windows 10 起为系统组件）都缺失时，程序才会在 Python 启动前失败；此时请安装上面的 Redistributable 后重试。验证运行库来源可执行：`powershell -NoProfile -File tools\inspect_loaded_modules.ps1`
 
 3. **原始文件保存**：
    
@@ -66,24 +68,23 @@
 
 目前程序提供三个版本供选择：
 
-### 1. `_Portable` 版本（推荐开发者/懂电脑的用户）
+### 1. `_Installer` 安装版（推荐，启动最快）
 
-- 后缀为 `_Portable.7z`，解压即可运行  
-- 无需安装，便于携带和自定义配置
-
-### 2. `onefile` 版本（推荐轻度用户）
-
-- 无后缀，双击即可运行  
-- 最简单直接，但首次启动较慢（因需解压到内存）
-
-### 3. `_Installer` 安装版（推荐大多数用户）
-
-- 后缀为 `_Installer.exe`推荐体验方式，启动快捷，兼容性最好  
+- 后缀为 `_Installer.exe`，安装后按目录形式运行，**没有解压等待，双击即可看到启动画面**
 - 安装流程：
   1. 双击安装程序启动
   2. 点击 `Next`
   3. 选择安装路径
   4. 点击 `Install` 开始安装
+
+### 2. `onefile` 版本（单文件，适合临时使用）
+
+- 无后缀，双击即可运行，但每次启动都要把内置文件解压到临时目录，**首次可见响应需要 20~50 秒**，期间屏幕没有任何提示
+
+### 3. `_Portable` 版本（推荐开发者/懂电脑的用户）
+
+- 后缀为 `_Portable.7z`，解压即可运行，同样没有解压等待
+- 无需安装，便于携带和自定义配置
 
 ---
 
@@ -180,6 +181,19 @@ dir dist
 - 首次在新环境构建会明显更慢（依赖分析和缓存初始化）。
 - 使用 `--clean` 会强制全量分析，耗时显著增加。
 - 当前依赖包含 `torch/scipy/ultralytics`，Analysis 阶段本身较重，属于正常现象。
+- NSIS 安装包阶段会压缩约 1.7 GB 的目录内容，是整条链路里最慢的一步。
+
+### 6. 随包 C++ 运行库（thirdParty/vc_runtime/x64）
+
+`main.spec` 会把这些 DLL 作为 `binaries` 打入产物，并在同名文件去重时优先使用这份副本。
+缺失时构建会直接失败并提示路径，不会静默跳过。采集与校验方式见
+`thirdParty/vc_runtime/x64/README.md`；许可信息见 `THIRD_PARTY_NOTICES.md`。
+
+排障开关（仅供排查，不影响正常启动）：
+
+- `BW_DISABLE_BUNDLED_CRT=1`：强制使用系统运行库副本
+- `BW_FORCE_BUNDLED_CRT=1`：禁止回退系统副本（用于验证"只靠随包运行库"能否启动）
+- `BW_SPLASH_DEBUG=1`：把启动画面创建细节写入 `%TEMP%\bw_splash_debug.log`
 
 ---
 

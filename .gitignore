@@ -26,6 +26,7 @@ build.nsi
 
 # Logs
 *.log
+*.err
 current.log
 
 # Local/manual test artifacts
@@ -33,6 +34,9 @@ test.py
 test2.py
 test_getAllUnicode.py
 test.jpg
+
+# 本地调试脚本与探测产物（启动耗时/截图/窗口追踪等一次性脚本）
+/.probe_tmp/
 
 # Prompt Files
 AGENTS.md
